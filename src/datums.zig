@@ -6,7 +6,12 @@ const Allocator = std.mem.Allocator;
 const Date = @import("./date.zig");
 const Datums = @This();
 
-pub const Type = enum {
+pub const BudgeterType = enum {
+    Budget,
+    Actual,
+};
+
+pub const TransactionType = enum {
     Income,
     Fixed,
     Variable,
@@ -14,7 +19,7 @@ pub const Type = enum {
     Saving,
 };
 
-pub const BudgetManagerConfig = struct {
+pub const BudgeterManagerConfig = struct {
     member_size: u8,
     description_length: usize,
     name_length: usize,
@@ -22,14 +27,28 @@ pub const BudgetManagerConfig = struct {
     database_reader: std.Io.Reader,
 };
 
-pub fn BudgetManager(comptime config: BudgetManagerConfig) type {
+pub fn BudgeterItem(comptime config: BudgeterManagerConfig) type {
     return struct {
-        member_size: u8 = config.member_size,
-        description_length: usize = config.description_length,
-        name_length: usize = config.name_length,
-        database_writer: std.Io.Writer = config.writer,
-        database_reader: std.Io.Reader = config.reader,
+        budgeter_type: Datums.BudgeterType,
+        tranaction_type: Datums.TransactionType,
+        who: [config.member_size][config.name_length]u8,
+        amount: u64, // Will treat as a fix point value
+        description: [config.description_length]u8,
+        date: Date,
+    };
+}
+
+pub fn BudgeterManager(comptime config: BudgeterManagerConfig) type {
+    return struct {
+        config: BudgeterManagerConfig = config,
 
         const Self = @This();
+
+        pub fn addBudgetItem(bm: *Self, budget_item: BudgeterItem(config)) !void {
+            // TODO: Implement
+        }
+        pub fn readBudgetItem(bm: *Self, identifier: anytype) !BudgeterItem(config) { // Not sure yet what to use as a identifier
+            // TODO: Implement
+        }
     };
 }
