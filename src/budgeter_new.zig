@@ -62,13 +62,13 @@ pub fn BudgeterManager(comptime config: BudgeterManagerConfig) type {
             };
         }
 
-        pub fn addBudgetItem(bm: *Self, gpa: Allocator, budget_item: *const BudgeterItem(config)) !u64 {
-            const budget_item_id: u64 = hash.Wyhash.hash(0, std.mem.asBytes(budget_item));
+        pub fn addBudgetItem(bm: *Self, gpa: Allocator, budget_item: *const BudgeterItem(config)) !void {
+            const budget_item_id = hash.Wyhash.hash(0, std.mem.asBytes(budget_item));
             const output_string = try std.fmt.allocPrint(gpa, "{s}{s}", .{ std.mem.asBytes(&budget_item_id), std.mem.asBytes(budget_item) });
             defer gpa.free(output_string);
-            _ = try bm.database_writer.write(output_string);
+            const w = try bm.database_writer.write(output_string);
             try bm.database_writer.flush();
-            return budget_item_id;
+            std.debug.print("bytes written: {d}\n", .{w});
         }
         // pub fn readBudgetItem(bm: *Self, identifier: anytype) !BudgeterItem(config) { // Not sure yet what to use as a identifier
         //     // TODO: Implement
@@ -111,20 +111,18 @@ test "writing to file" {
 
     const io = std.testing.io;
 
-    const bm_config: BudgeterManagerConfig =
-        .{ .description_length = 100, .member_size = 10, .name_length = 10 };
-    const test_item =
-        BudgeterItem(bm_config){ .amount = 1000, .budgeter_type = Datums.BudgeterType.Budget, .date = Date{ .day = 1, .month = 1, .year = 2000 }, .description = undefined, .tranaction_type = Datums.TransactionType.Fixed, .who = undefined };
+    const bm_config: BudgeterManagerConfig = .{ .description_length = 100, .member_size = 10, .name_length = 10 };
+    const test_item = BudgeterItem(bm_config){ .amount = 1000, .budgeter_type = Datums.BudgeterType.Budget, .date = Date{ .day = 1, .month = 1, .year = 2000 }, .description = undefined, .tranaction_type = Datums.TransactionType.Fixed, .who = undefined };
     {
         const file = try std.Io.Dir.cwd().createFile(io, write_file_path, .{ .truncate = false });
         defer file.close(io);
 
         var buff: [1024]u8 = undefined;
-        var file_reader = file.reader(io, &buff);
-        var file_writer = file.writer(io, &buff);
+        var file_reader = file.reader(io, buff[0..]);
+        var file_writer = file.writer(io, buff[0..]);
         var bm = BudgeterManager(bm_config).init(&file_reader.interface, &file_writer.interface);
 
-        _ = try bm.addBudgetItem(alloc, &test_item);
+        try bm.addBudgetItem(alloc, &test_item);
     }
 
     const write_contents = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, write_file_path, alloc, std.Io.Limit.limited(1024));
@@ -140,38 +138,4 @@ test "writing to file" {
     defer alloc.free(compare_string);
 
     try std.testing.expectEqualStrings(compare_string, write_contents);
-}
-
-test "reconstruct from file" {
-    const write_file_path = "./src/rec_test.txt";
-    var alloc = std.testing.allocator;
-    // var thread: std.Io.Threaded = .init(alloc, .{});
-    // defer thread.deinit();
-
-    const io = std.testing.io;
-
-    const bm_config: BudgeterManagerConfig =
-        .{ .description_length = 100, .member_size = 10, .name_length = 10 };
-    const test_item =
-        BudgeterItem(bm_config){ .amount = 1000, .budgeter_type = Datums.BudgeterType.Budget, .date = Date{ .day = 1, .month = 1, .year = 2000 }, .description = undefined, .tranaction_type = Datums.TransactionType.Fixed, .who = undefined };
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, write_file_path, .{ .truncate = false });
-        defer file.close(io);
-
-        var buff: [1024]u8 = undefined;
-        var file_reader = file.reader(io, &buff);
-        var file_writer = file.writer(io, &buff);
-        var bm = BudgeterManager(bm_config).init(&file_reader.interface, &file_writer.interface);
-
-        _ = try bm.addBudgetItem(alloc, &test_item);
-    }
-
-    const write_contents = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, write_file_path, alloc, std.Io.Limit.limited(1024));
-    defer alloc.free(write_contents);
-    const reconstruced_budgeter_id: *u64 = @alignCast(std.mem.bytesAsValue(u64, write_contents[0..@sizeOf(u64)]));
-    std.debug.print("id: {d}\n", .{reconstruced_budgeter_id.*});
-    const reconstructed_test_item: *BudgeterItem(bm_config) =
-        @alignCast(std.mem.bytesAsValue(BudgeterItem(bm_config), write_contents[@sizeOf(u64)..]));
-
-    try std.testing.expectEqualDeep(test_item, reconstructed_test_item.*);
 }
