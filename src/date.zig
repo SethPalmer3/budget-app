@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Date = @This();
+pub const Date = @This();
 
 day: u8,
 month: u8,
