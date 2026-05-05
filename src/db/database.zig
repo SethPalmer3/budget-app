@@ -1,13 +1,14 @@
 const std = @import("std");
 
 pub const DBError = error{
-    CannotStore,
+    CannotInitalize,
+    CannotStoreData,
     NoKeyFound,
 };
 
 /// A generic database interface generator.
-/// Validates that `T` is a struct, `indexes` is a tuple of strings,
-/// and that every string corresponds to a valid field in `T`.
+/// T is the datatype for the stored value and
+/// K is the datatype for the corresponding key
 pub fn Database(comptime T: type, comptime K: type) type {
 
     // 4. Return the generated type storing the parameters.
@@ -17,7 +18,7 @@ pub fn Database(comptime T: type, comptime K: type) type {
         const Self = @This();
 
         pub const Vtable = struct {
-            store: *const fn (*anyopaque, Self.KeyType, *Self.RecordType) DBError!void, // Add data to database
+            store: *const fn (*anyopaque, Self.KeyType, Self.RecordType) DBError!void, // Add data to database
             retrieve: *const fn (*anyopaque, Self.KeyType) DBError!Self.RecordType, // Get data from database
         };
 
