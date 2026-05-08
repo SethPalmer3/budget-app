@@ -70,11 +70,24 @@ pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) ty
             try heap_file_writer.flush();
         }
 
-        // pub fn getValueByKey(lse: *Self, key: KeyType) !RecorcType {
-        //     const key_value_pair_size = @sizeOf(KeyType) + @sizeOf(RecorcType);
-        //     const data_directory = try open_dir_abs_or_cwd(io, path: []const u8)
-        //
-        // }
+        pub fn getValueByKey(lse: *Self, key: KeyType) !RecorcType {
+            const io = lse.options.io;
+            const key_value_pair_size = @sizeOf(KeyType) + @sizeOf(RecorcType);
+            const data_directory = try open_dir_abs_or_cwd(io, lse.options.data_path);
+            const heap_file = try data_directory.openFile(io, lse.options.heap_file_name, .{ .mode = .read_only });
+            var heap_file_reader = heap_file.reader(io, lse.buff);
+            var generic_reader = &heap_file_reader.interface;
+            var file_index = 0;
+            var read_key: KeyType = undefined;
+            while (true) {
+                heap_file_reader.seekTo(file_index);
+                generic_reader.readSliceAll(&read_key);
+                // TODO: Make sure you're reading in the key correctly
+                // compare the given key with the one read
+                // if it's not the same increment `file_index` and read again
+                // if it's the same read the record and return it
+            }
+        }
     };
 }
 
