@@ -30,6 +30,15 @@ inline fn create_dir_abs_or_cwd(io: std.Io, path: []const u8) !void {
     try std.Io.Dir.cwd().createDirPath(io, path); // Not sure why createDirPath works but createPath doesn't
 }
 
+inline fn read_throw_EOF(generic_reader: *std.Io.Reader, bytes: []u8) !void {
+    generic_reader.readSliceAll(bytes) catch |err| {
+        if (err == error.EndOfStream) {
+            return Database.DBError.NoKeyFound;
+        }
+        return err;
+    };
+}
+
 pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) type {
     return struct {
         options: Options,
@@ -76,16 +85,27 @@ pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) ty
             const data_directory = try open_dir_abs_or_cwd(io, lse.options.data_path);
             const heap_file = try data_directory.openFile(io, lse.options.heap_file_name, .{ .mode = .read_only });
             var heap_file_reader = heap_file.reader(io, lse.buff);
-            var generic_reader = &heap_file_reader.interface;
-            var file_index = 0;
+            const generic_reader = &heap_file_reader.interface;
+            var file_index: u64 = 0;
             var read_key: KeyType = undefined;
+            var read_value: RecorcType = undefined;
+            var read_key_buffer: [@sizeOf(KeyType)]u8 = undefined;
+            var read_record_buffer: [@sizeOf(RecorcType)]u8 = undefined;
             while (true) {
-                heap_file_reader.seekTo(file_index);
-                generic_reader.readSliceAll(&read_key);
-                // TODO: Make sure you're reading in the key correctly
-                // compare the given key with the one read
-                // if it's not the same increment `file_index` and read again
-                // if it's the same read the record and return it
+                heap_file_reader.seekTo(file_index) catch |err| {
+                    if (err == error.EndOfStream) {
+                        return Database.DBError.NoKeyFound;
+                    }
+                    return err;
+                };
+                try read_throw_EOF(generic_reader, &read_key_buffer);
+                read_key = std.mem.bytesAsValue(KeyType, &read_key_buffer).*;
+                if (std.meta.eql(read_key, key)) { // Check if the key we read from the heap file is the one provided
+                    try read_throw_EOF(generic_reader, &read_record_buffer);
+                    read_value = std.mem.bytesAsValue(RecorcType, &read_record_buffer).*;
+                    return read_value;
+                }
+                file_index += key_value_pair_size;
             }
         }
     };
@@ -107,6 +127,26 @@ test "load single record to file" {
     const heap_file_stat = try heap_file.stat(io);
     try std.testing.expect(heap_file_stat.size > 0);
 }
+
+test "read single record from file" {
+    const key_value: u64 = 1001;
+    const record_value: u64 = 2002;
+    const io = std.testing.io;
+    const data_path = "testing";
+    const heap_file_name = "heap.db";
+
+    const test_dir = try open_dir_abs_or_cwd(io, data_path);
+    test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
+
+    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    defer lse.deinit(std.testing.allocator);
+    try lse.storeData(key_value, record_value);
+
+    const read_value = try lse.getValueByKey(key_value);
+
+    try std.testing.expect(std.meta.eql(read_value, record_value));
+}
+
 test "load multiple records to file" {
     const io = std.testing.io;
     const data_path = "testing";
