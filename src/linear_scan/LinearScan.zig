@@ -1,5 +1,7 @@
 const std = @import("std");
-const Database = @import("./database.zig");
+const Database = @import("database");
+// const Indexer = @import("indexer");
+// const StorageEngine = @import("storage_engine");
 
 const Options = struct {
     data_path: []const u8,
@@ -89,6 +91,10 @@ pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) ty
             try heap_file_writer.flush();
         }
 
+        pub fn store_data_wrapper(ptr: *anyopaque, key: KeyType, record: RecorcType) anyerror!void {
+            return try Self.storeData(@ptrCast(@alignCast(ptr)), key, record);
+        }
+
         pub fn getValueByKey(lse: *Self, key: KeyType) !RecorcType {
             const io = lse.options.io;
             const key_value_pair_size = @sizeOf(KeyType) + @sizeOf(RecorcType);
@@ -114,10 +120,22 @@ pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) ty
                 file_index += key_value_pair_size;
             }
         }
+
+        pub fn get_value_wrapper(ptr: *anyopaque, key: KeyType) !RecorcType {
+            return try Self.getValueByKey(@ptrCast(@alignCast(ptr)), key);
+        }
+
+        pub fn database(lse: *Self) Database.Database(RecorcType, KeyType) {
+            return .{ .ptr = lse, .vtable = &.{
+                .store = store_data_wrapper,
+                .retrieve = get_value_wrapper,
+            } };
+        }
     };
 }
 
 test "load single record to file" {
+    // std.testing.refAllDecls(@This());
     const io = std.testing.io;
     const data_path = "testing";
     const heap_file_name = "heap.db";
@@ -171,7 +189,7 @@ test "load multiple records to file" {
     const single_record_file_size = heap_file_stat.size;
     try lse.storeData(1001, 2002);
     heap_file_stat = try heap_file.stat(io);
-    std.debug.print("single record size: {d}\ntwo record size: {d}\n", .{ single_record_file_size, heap_file_stat.size });
+    // std.debug.print("single record size: {d}\ntwo record size: {d}\n", .{ single_record_file_size, heap_file_stat.size });
     try std.testing.expect(heap_file_stat.size == 2 * single_record_file_size);
 }
 
@@ -222,4 +240,24 @@ test "comlex record type multiple load single read" {
 
     const read_record = try lse.getValueByKey(1001 * (key_value_offset + 1));
     try std.testing.expect(std.meta.eql(read_record.some_num, 1001 * (key_value_offset + 1)));
+}
+
+test "test generic interface" {
+    const key_value: u64 = 1001;
+    const record_value: u64 = 2002;
+    const io = std.testing.io;
+    const data_path = "testing";
+    const heap_file_name = "heap.db";
+
+    const test_dir = try open_dir_abs_or_cwd(io, data_path);
+    test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
+
+    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    defer lse.deinit(std.testing.allocator);
+    var generic_database = lse.database();
+    try generic_database.storeData(key_value, record_value);
+
+    const read_value = try generic_database.retrieveData(key_value);
+
+    try std.testing.expect(std.meta.eql(read_value, record_value));
 }

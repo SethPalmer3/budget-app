@@ -21,25 +21,30 @@ pub fn build(b: *std.Build) void {
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
 
-    // This creates a module, which represents a collection of source files alongside
-    // some compilation options, such as optimization mode and linked system libraries.
-    // Zig modules are the preferred way of making Zig code available to consumers.
-    // addModule defines a module that we intend to make available for importing
-    // to our consumers. We must give it a name because a Zig package can expose
-    // multiple modules and consumers will need to be able to specify which
-    // module they want to access.
-    const mod = b.addModule("budget_app", .{
-        // The root source file is the "entry point" of this module. Users of
-        // this module will only be able to access public declarations contained
-        // in this file, which means that if you have declarations that you
-        // intend to expose to consumers that were defined in other files part
-        // of this module, you will have to make sure to re-export them from
-        // the root file.
-        .root_source_file = b.path("src/root.zig"),
-        // Later on we'll use this module as the root module of a test executable
-        // which requires us to specify a target.
+    const database = b.addModule("database", .{
+        .root_source_file = b.path("src/db/database.zig"),
         .target = target,
     });
+
+    const indexer = b.addModule("indexer", .{
+        .root_source_file = b.path("src/db/indexer.zig"),
+        .target = target,
+    });
+
+    const storage_engine = b.addModule("storage_engine", .{
+        .root_source_file = b.path("src/db/storage_engine.zig"),
+        .target = target,
+    });
+
+    const linear_scan = b.addModule("linear_scan", .{
+        .root_source_file = b.path("src/linear_scan/LinearScan.zig"),
+        .imports = &.{
+            .{ .name = "database", .module = database },
+        },
+        .target = target,
+    });
+
+    linear_scan.addImport("database", database);
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -78,7 +83,10 @@ pub fn build(b: *std.Build) void {
                 // repeated because you are allowed to rename your imports, which
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
-                .{ .name = "budget_app", .module = mod },
+                .{ .name = "database", .module = database },
+                .{ .name = "indexer", .module = indexer },
+                .{ .name = "storage_engine", .module = storage_engine },
+                .{ .name = "linear_scan", .module = linear_scan },
             },
         }),
     });
@@ -118,12 +126,24 @@ pub fn build(b: *std.Build) void {
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
     // set the releative field.
-    const mod_tests = b.addTest(.{
-        .root_module = mod,
+    const db_test = b.addTest(.{
+        .root_module = database,
+    });
+    const indxr_test = b.addTest(.{
+        .root_module = indexer,
+    });
+    const storage_engine_test = b.addTest(.{
+        .root_module = storage_engine,
+    });
+    const linear_scan_test = b.addTest(.{
+        .root_module = linear_scan,
     });
 
     // A run step that will run the test executable.
-    const run_mod_tests = b.addRunArtifact(mod_tests);
+    const run_db_test = b.addRunArtifact(db_test);
+    const run_indxr_test = b.addRunArtifact(indxr_test);
+    const run_storage_engine_test = b.addRunArtifact(storage_engine_test);
+    const run_linear_scan_test = b.addRunArtifact(linear_scan_test);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
@@ -139,7 +159,10 @@ pub fn build(b: *std.Build) void {
     // times and since the two run steps do not depend on one another, this will
     // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_mod_tests.step);
+    test_step.dependOn(&run_db_test.step);
+    test_step.dependOn(&run_indxr_test.step);
+    test_step.dependOn(&run_storage_engine_test.step);
+    test_step.dependOn(&run_linear_scan_test.step);
     test_step.dependOn(&run_exe_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.

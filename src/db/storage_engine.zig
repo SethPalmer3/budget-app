@@ -15,6 +15,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
 
         pub const VTable = struct {
             store: *const fn (*anyopaque, DataType) SEError!Reference,
+            edit: *const fn (*anyopaque, Reference, DataType) SEError!void,
             retrieve: *const fn (*anyopaque, Reference) SEError!DataType,
             delete: *const fn (*anyopaque, Reference) SEError!void,
         };
@@ -24,6 +25,10 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
 
         pub fn StoreData(se: *Self, data: DataType) SEError!Reference {
             return try se.vtable.store(se.ptr, data);
+        }
+
+        pub fn EditData(se: *Self, ref: Reference, data: DataType) SEError!Reference {
+            return try se.vtable.edit(se.ptr, ref, data);
         }
 
         /// The reference should be something that can be used to

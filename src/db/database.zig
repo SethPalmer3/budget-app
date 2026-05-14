@@ -16,17 +16,17 @@ pub fn Database(comptime RecordType: type, comptime KeyType: type) type {
         const Self = @This();
 
         pub const Vtable = struct {
-            store: *const fn (*anyopaque, KeyType, RecordType) DBError!void, // Add data to database
-            retrieve: *const fn (*anyopaque, KeyType) DBError!RecordType, // Get data from database
+            store: *const fn (*anyopaque, KeyType, RecordType) anyerror!void, // Add data to database
+            retrieve: *const fn (*anyopaque, KeyType) anyerror!RecordType, // Get data from database
         };
 
         ptr: *anyopaque,
         vtable: *const Vtable,
 
-        pub fn storeData(db: Self, key: Self.KeyType, data: *Self.RecordType) DBError!void {
+        pub fn storeData(db: Self, key: KeyType, data: RecordType) anyerror!void {
             return db.vtable.store(db.ptr, key, data);
         }
-        pub fn retrieveData(db: Self, key: Self.KeyType) DBError!Self.RecordType {
+        pub fn retrieveData(db: Self, key: KeyType) anyerror!RecordType {
             return db.vtable.retrieve(db.ptr, key);
         }
     };
