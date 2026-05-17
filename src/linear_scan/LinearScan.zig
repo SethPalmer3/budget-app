@@ -1,5 +1,8 @@
 const std = @import("std");
 const Database = @import("database");
+const open_dir_abs_or_cwd = @import("./path_funcs.zig").open_dir_abs_or_cwd;
+const create_dir_abs_or_cwd = @import("./path_funcs.zig").create_dir_abs_or_cwd;
+const read_throw_EOF = @import("./path_funcs.zig").read_throw_EOF;
 // const Indexer = @import("indexer");
 // const StorageEngine = @import("storage_engine");
 
@@ -9,43 +12,6 @@ const Options = struct {
     io: std.Io,
     buffer_size: usize,
 };
-
-/// Opens the `path` directory first by trying to open using
-/// and absolute path then checks the current working directory
-/// if the absolute path fails
-inline fn open_dir_abs_or_cwd(io: std.Io, path: []const u8) !std.Io.Dir {
-    if (std.fs.path.isAbsolute(path)) {
-        return try std.Io.Dir.openDirAbsolute(io, path, .{});
-    }
-    return std.Io.Dir.cwd().openDir(io, path, .{});
-}
-
-/// Automatically detect if the path given is an absolute
-/// path or a relative path then create the directory using
-/// the correct function
-inline fn create_dir_abs_or_cwd(io: std.Io, path: []const u8) !void {
-    if (std.fs.path.isAbsolute(path)) {
-        try std.Io.Dir.createDirAbsolute(
-            io,
-            path,
-            .default_dir,
-        );
-        return;
-    }
-    try std.Io.Dir.cwd().createDirPath(io, path); // Not sure why createDirPath works but createPath doesn't
-}
-
-/// read from the generic reader interface
-/// and throw the database error `NoKeyFound`
-/// if it hits the end of file
-inline fn read_throw_EOF(generic_reader: *std.Io.Reader, bytes: []u8) !void {
-    generic_reader.readSliceAll(bytes) catch |err| {
-        if (err == error.EndOfStream) {
-            return Database.DBError.NoKeyFound;
-        }
-        return err;
-    };
-}
 
 /// Main controller structure for the linear scan database
 /// the database will just append the most recent data to
@@ -112,7 +78,7 @@ pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) ty
                     }
                     return err;
                 };
-                try read_throw_EOF(generic_reader, std.mem.asBytes(&read_key));
+                try read_throw_EOF(generic_reader, std.mem.asBytes(&read_key), Database.DBError.NoKeyFound);
                 if (std.meta.eql(read_key, key)) { // Check if the key we read from the heap file is the one provided
                     try read_throw_EOF(generic_reader, std.mem.asBytes(&read_value));
                     return read_value;

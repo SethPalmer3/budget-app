@@ -38,9 +38,9 @@ pub fn build(b: *std.Build) void {
 
     const linear_scan = b.addModule("linear_scan", .{
         .root_source_file = b.path("src/linear_scan/LinearScan.zig"),
-        .imports = &.{
-            .{ .name = "database", .module = database },
-        },
+        // .imports = &.{
+        //     .{ .name = "database", .module = database },
+        // },
         .target = target,
     });
 

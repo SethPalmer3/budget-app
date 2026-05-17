@@ -14,10 +14,10 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
         const Self = @This();
 
         pub const VTable = struct {
-            store: *const fn (*anyopaque, DataType) SEError!Reference,
-            edit: *const fn (*anyopaque, Reference, DataType) SEError!void,
-            retrieve: *const fn (*anyopaque, Reference) SEError!DataType,
-            delete: *const fn (*anyopaque, Reference) SEError!void,
+            store: *const fn (*anyopaque, DataType) anyerror!Reference,
+            edit: *const fn (*anyopaque, Reference, DataType) anyerror!void,
+            retrieve: *const fn (*anyopaque, Reference) anyerror!DataType,
+            delete: *const fn (*anyopaque, Reference) anyerror!void,
         };
 
         ptr: *anyopaque,
