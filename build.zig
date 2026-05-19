@@ -21,30 +21,16 @@ pub fn build(b: *std.Build) void {
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
 
-    const database = b.addModule("database", .{
-        .root_source_file = b.path("src/db/database.zig"),
+    const database = b.addModule("Databases", .{
+        .root_source_file = b.path("src/db/root.zig"),
         .target = target,
     });
 
-    const indexer = b.addModule("indexer", .{
-        .root_source_file = b.path("src/db/indexer.zig"),
+    const linear_scan = b.addModule("LinearScan", .{
+        .root_source_file = b.path("src/linear_scan/root.zig"),
         .target = target,
     });
-
-    const storage_engine = b.addModule("storage_engine", .{
-        .root_source_file = b.path("src/db/storage_engine.zig"),
-        .target = target,
-    });
-
-    const linear_scan = b.addModule("linear_scan", .{
-        .root_source_file = b.path("src/linear_scan/LinearScan.zig"),
-        // .imports = &.{
-        //     .{ .name = "database", .module = database },
-        // },
-        .target = target,
-    });
-
-    linear_scan.addImport("database", database);
+    linear_scan.addImport("Databases", database);
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -84,8 +70,6 @@ pub fn build(b: *std.Build) void {
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
                 .{ .name = "database", .module = database },
-                .{ .name = "indexer", .module = indexer },
-                .{ .name = "storage_engine", .module = storage_engine },
                 .{ .name = "linear_scan", .module = linear_scan },
             },
         }),
@@ -129,20 +113,12 @@ pub fn build(b: *std.Build) void {
     const db_test = b.addTest(.{
         .root_module = database,
     });
-    const indxr_test = b.addTest(.{
-        .root_module = indexer,
-    });
-    const storage_engine_test = b.addTest(.{
-        .root_module = storage_engine,
-    });
     const linear_scan_test = b.addTest(.{
         .root_module = linear_scan,
     });
 
     // A run step that will run the test executable.
     const run_db_test = b.addRunArtifact(db_test);
-    const run_indxr_test = b.addRunArtifact(indxr_test);
-    const run_storage_engine_test = b.addRunArtifact(storage_engine_test);
     const run_linear_scan_test = b.addRunArtifact(linear_scan_test);
 
     // Creates an executable that will run `test` blocks from the executable's
@@ -160,8 +136,6 @@ pub fn build(b: *std.Build) void {
     // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_db_test.step);
-    test_step.dependOn(&run_indxr_test.step);
-    test_step.dependOn(&run_storage_engine_test.step);
     test_step.dependOn(&run_linear_scan_test.step);
     test_step.dependOn(&run_exe_tests.step);
 

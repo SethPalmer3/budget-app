@@ -1,5 +1,7 @@
 const std = @import("std");
-const Database = @import("database");
+const Databases = @import("Databases");
+const Database = Databases.Database;
+pub const LinearStorageEngine = @import("linear_storage_engine.zig");
 const open_dir_abs_or_cwd = @import("./path_funcs.zig").open_dir_abs_or_cwd;
 const create_dir_abs_or_cwd = @import("./path_funcs.zig").create_dir_abs_or_cwd;
 const read_throw_EOF = @import("./path_funcs.zig").read_throw_EOF;
@@ -17,7 +19,7 @@ const Options = struct {
 /// the database will just append the most recent data to
 /// end of the heap file and will scan through it like a
 /// large array
-pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) type {
+pub fn LinearStorageDB(comptime RecorcType: type, comptime KeyType: type) type {
     return struct {
         options: Options,
         buff: []u8,
@@ -80,7 +82,7 @@ pub fn LinearStorageEngine(comptime RecorcType: type, comptime KeyType: type) ty
                 };
                 try read_throw_EOF(generic_reader, std.mem.asBytes(&read_key), Database.DBError.NoKeyFound);
                 if (std.meta.eql(read_key, key)) { // Check if the key we read from the heap file is the one provided
-                    try read_throw_EOF(generic_reader, std.mem.asBytes(&read_value));
+                    try read_throw_EOF(generic_reader, std.mem.asBytes(&read_value), Database.DBError.NoKeyFound);
                     return read_value;
                 }
                 file_index += key_value_pair_size;
@@ -109,7 +111,7 @@ test "load single record to file" {
     const test_dir = try open_dir_abs_or_cwd(io, data_path);
     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
 
-    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
     defer lse.deinit(std.testing.allocator);
     try lse.storeData(1001, 2002);
 
@@ -128,7 +130,7 @@ test "read single record from file" {
     const test_dir = try open_dir_abs_or_cwd(io, data_path);
     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
 
-    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
     defer lse.deinit(std.testing.allocator);
     try lse.storeData(key_value, record_value);
 
@@ -145,7 +147,7 @@ test "load multiple records to file" {
     const test_dir = try open_dir_abs_or_cwd(io, data_path);
     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
 
-    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
     defer lse.deinit(std.testing.allocator);
     try lse.storeData(1001, 2002);
 
@@ -168,7 +170,7 @@ test "multiple load single read" {
     const test_dir = try open_dir_abs_or_cwd(io, data_path);
     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
 
-    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
     defer lse.deinit(std.testing.allocator);
 
     for (0..10) |i| {
@@ -193,7 +195,7 @@ test "comlex record type multiple load single read" {
     const test_dir = try open_dir_abs_or_cwd(io, data_path);
     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
 
-    var lse = try LinearStorageEngine(record_type, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    var lse = try LinearStorageDB(record_type, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
     defer lse.deinit(std.testing.allocator);
 
     for (0..10) |i| {
@@ -218,7 +220,7 @@ test "test generic interface" {
     const test_dir = try open_dir_abs_or_cwd(io, data_path);
     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
 
-    var lse = try LinearStorageEngine(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
+    var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
     defer lse.deinit(std.testing.allocator);
     var generic_database = lse.database();
     try generic_database.storeData(key_value, record_value);
@@ -226,4 +228,8 @@ test "test generic interface" {
     const read_value = try generic_database.retrieveData(key_value);
 
     try std.testing.expect(std.meta.eql(read_value, record_value));
+}
+
+test {
+    _ = @import("linear_storage_engine.zig");
 }

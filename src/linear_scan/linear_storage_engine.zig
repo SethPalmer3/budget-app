@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const storageEngine = @import("storage_engine");
+const storageEngine = @import("Databases").StorageEngine;
 const path_utils = @import("./path_funcs.zig");
 
 const fill_character: u8 = 0;
@@ -14,7 +14,7 @@ pub const Options = struct {
 pub fn linearStorageEngine(comptime DataType: type) type {
     return struct {
         const Self = @This();
-        const Reference = u64;
+        pub const Reference = u64;
 
         allocator: Allocator,
         options: Options,
@@ -26,7 +26,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
         /// `pre_alloc` will clear and fill the heap file with space
         /// to be readily able to put data in.
         pub fn init(alloc: Allocator, options: Options) !Self {
-            std.debug.print("Clearing file: {s}\n", .{options.heap_file_location});
+            // std.debug.print("Clearing file: {s}\n", .{options.heap_file_location});
             const heap_file = try path_utils.create_file_abs_or_cwd(options.io, options.heap_file_location, .{ .read = true });
             const buff: []u8 = try alloc.alloc(u8, 1024);
 
@@ -52,7 +52,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             return stored_ref;
         }
 
-        pub fn retreive(ptr: *anyopaque, ref: Reference) !DataType {
+        pub fn retrieve(ptr: *anyopaque, ref: Reference) !DataType {
             const lse: *Self = @ptrCast(@alignCast(ptr));
             const io = lse.options.io;
             const heap_file = lse.heap_file;
@@ -60,8 +60,9 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var heap_file_reader = heap_file.reader(io, lse.buffer);
             var generic_reader = &heap_file_reader.interface;
 
-            if (ref % @sizeOf(DataType) != 0 or ref > lse.heap_EOF_pso) {
-                return error.InvalidData;
+            // std.debug.print("{d} > {d}\n", .{ ref, lse.heap_EOF_pso });
+            if ((ref % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso) {
+                return storageEngine.SEError.InvalidReference;
             }
             try heap_file_reader.seekTo(ref);
 
@@ -69,6 +70,21 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             defer lse.allocator.free(data);
 
             return std.mem.bytesToValue(DataType, data);
+        }
+
+        /// Does not actually delete anything
+        pub fn delete(ptr: *anyopaque, ref: Reference) !void {
+            _ = ptr;
+            _ = ref;
+            return;
+        }
+
+        pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference) {
+            return .{ .ptr = lse, .vtable = &.{
+                .store = store,
+                .retrieve = retrieve,
+                .delete = delete,
+            } };
         }
     };
 }
@@ -87,6 +103,21 @@ test "store 1 item" {
     const heap_file = try path_utils.open_file_abs_or_cwd(io, heap_file_location, .{});
     const heap_file_stat = try heap_file.stat(io);
     try std.testing.expect(heap_file_stat.size == @sizeOf(u64));
+}
+
+test "retrieve with invalid reference" {
+    // std.testing.refAllDecls(@This());
+    const io = std.testing.io;
+    const heap_file_location = "testing/heap.db";
+
+    path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    defer lse.deinit();
+    _ = try linearStorageEngine(u64).store(&lse, 0xaaaa);
+    const retrieve_data = linearStorageEngine(u64).retrieve(&lse, @sizeOf(u64));
+
+    try std.testing.expectError(storageEngine.SEError.InvalidReference, retrieve_data);
 }
 
 test "store 2 item" {
@@ -115,7 +146,7 @@ test "retrieve 1 item" {
     defer lse.deinit();
     const first_item = try linearStorageEngine(u64).store(&lse, 0xaaaa);
 
-    const retrieved_item = try linearStorageEngine(u64).retreive(&lse, first_item);
+    const retrieved_item = try linearStorageEngine(u64).retrieve(&lse, first_item);
 
     try std.testing.expect(std.meta.eql(retrieved_item, 0xaaaa));
 }
@@ -132,7 +163,23 @@ test "retrieve 1 item multi-store" {
     const second_item = try linearStorageEngine(u64).store(&lse, 0xbbbb);
     _ = try linearStorageEngine(u64).store(&lse, 0xcccc);
 
-    const retrieved_item = try linearStorageEngine(u64).retreive(&lse, second_item);
+    const retrieved_item = try linearStorageEngine(u64).retrieve(&lse, second_item);
 
     try std.testing.expect(std.meta.eql(retrieved_item, 0xbbbb));
+}
+
+test "usage of interface" {
+    const io = std.testing.io;
+    const heap_file_location = "testing/heap.db";
+
+    path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    defer lse.deinit();
+    var generic_storage_engine = lse.storage_engine();
+    const ref = try generic_storage_engine.StoreData(0xaaaa);
+
+    const retrieved_item = try generic_storage_engine.RetrieveData(ref);
+
+    try std.testing.expect(std.meta.eql(retrieved_item, 0xaaaa));
 }

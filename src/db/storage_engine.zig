@@ -15,7 +15,6 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
 
         pub const VTable = struct {
             store: *const fn (*anyopaque, DataType) anyerror!Reference,
-            edit: *const fn (*anyopaque, Reference, DataType) anyerror!void,
             retrieve: *const fn (*anyopaque, Reference) anyerror!DataType,
             delete: *const fn (*anyopaque, Reference) anyerror!void,
         };
@@ -23,17 +22,17 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
         ptr: *anyopaque,
         vtable: *const VTable,
 
-        pub fn StoreData(se: *Self, data: DataType) SEError!Reference {
+        /// Store the predefined data type in what ever data
+        /// structure or method defined. Return a reference
+        /// that the storage engine can use to retrieve the
+        /// data
+        pub fn StoreData(se: *Self, data: DataType) !Reference {
             return try se.vtable.store(se.ptr, data);
-        }
-
-        pub fn EditData(se: *Self, ref: Reference, data: DataType) SEError!Reference {
-            return try se.vtable.edit(se.ptr, ref, data);
         }
 
         /// The reference should be something that can be used to
         /// quickly find the data that the storage enine stored.
-        pub fn RetrieveData(se: *Self, ref: Reference) SEError.InvalidReference!DataType {
+        pub fn RetrieveData(se: *Self, ref: Reference) !DataType {
             return try se.vtable.retrieve(se.ptr, ref);
         }
 
@@ -41,7 +40,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
         /// the error `DataDeleted` can be omitted but could allow
         /// the user to know if that data was apart of the storage
         /// pool at some point
-        pub fn DeleteData(se: *Self, ref: Reference) SEError!void {
+        pub fn DeleteData(se: *Self, ref: Reference) !void {
             return try se.vtable.delete(se.ptr, ref);
         }
     };

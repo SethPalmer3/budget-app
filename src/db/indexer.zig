@@ -11,9 +11,9 @@ pub fn Indexer(comptime IndexType: type, DataType: type, DataReferenceType: type
         const Self = @This();
 
         pub const Vtable = struct {
-            index: *const fn (*anyopaque, IndexType, DataType, *StorageEngine) IndexerError!void,
-            lookup: *const fn (*anyopaque, IndexType, *StorageEngine) IndexerError!DataType,
-            delete: *const fn (*anyopaque, IndexType, *StorageEngine) IndexerError!void,
+            index: *const fn (*anyopaque, DataType, *StorageEngine) anyerror!void,
+            lookup: *const fn (*anyopaque, IndexType, *StorageEngine) anyerror!DataType,
+            delete: *const fn (*anyopaque, IndexType, *StorageEngine) anyerror!void,
         };
 
         ptr: ?*anyopaque,
