@@ -71,9 +71,41 @@ pub fn LinearIndexer(comptime DataType: type, comptime ReferenceType: type, comp
             var index_file_writer = indxr.index_file.writer(indxr.options.io, indxr.buffer);
             var gen_writer = &index_file_writer.interface;
 
-            _ = try gen_writer.write(std.mem.asBytes(&@field(data, index_on)));
-            _ = try gen_writer.write(std.mem.asBytes(&ref));
+            _ = try gen_writer.write(std.mem.asBytes(&indxr.entries[indxr.filled_entries]));
             try index_file_writer.flush();
+            indxr.filled_entries += 1;
+        }
+
+        pub fn lookup(ptr: *anyopaque, index_value: IndexType, se: *StorageEngine(DataType, ReferenceType)) !DataType {
+            const indexer: *Self = @ptrCast(@alignCast(ptr));
+            var match_index: ?ReferenceType = null;
+            for (indexer.entries) |entry| {
+                if (std.meta.eql(entry.index_value, index_value)) {
+                    match_index = entry.reference_value;
+                }
+            }
+            if (match_index == null) {
+                return Indexer.IndexerError.CouldNotFindIndex;
+            }
+            return try se.RetrieveData(match_index.?);
+        }
+
+        pub fn delete(ptr: *anyopaque, index_value: IndexType, se: *StorageEngine(DataType, ReferenceType)) !void {
+            const indexer: *Self = @ptrCast(@alignCast(ptr));
+            // TODO: delete from entries slice
+            var roll_back = false;
+            for (indexer.entries, 0..) |entry, i| {
+                if (std.meta.eql(index_value, entry.index_value)) {
+                    roll_back = true;
+                    indexer.filled_entries -= 1;
+                    try se.DeleteData(entry.reference_value);
+                    continue;
+                }
+                if (roll_back) {
+                    const current_copy = entry;
+                    indexer.entries[i - 1] = current_copy;
+                }
+            }
         }
     };
 }
@@ -103,4 +135,130 @@ test "index one item" {
     try std.testing.expect(indexer.entries.ptr[0].index_value == 200);
     const index_file_stat = try indexer.index_file.stat(std.testing.io);
     try std.testing.expect(index_file_stat.size > 0);
+    try std.testing.expect(indexer.filled_entries == 1);
+}
+
+test "retrieve data" {
+    const data: u64 = 1001;
+    const index: u64 = 200;
+    const testType = struct {
+        data: u64,
+        index: u64,
+    };
+
+    const heap_location = "testing/heap.db";
+    const index_file_location = "testing/index.ind";
+
+    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location) catch {};
+    path_utils.delete_file_abs_or_cwd(std.testing.io, heap_location) catch {};
+
+    var linear_se = try LinearSE.linearStorageEngine(testType).init(std.testing.allocator, .{ .io = std.testing.io, .heap_file_location = heap_location });
+    defer linear_se.deinit();
+    const linIndexType = LinearIndexer(testType, u64, "index");
+
+    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    defer indexer.deinit();
+
+    var se = linear_se.storage_engine();
+
+    try linIndexType.index(&indexer, .{ .index = index, .data = data }, &se);
+    const retrieve_data = try linIndexType.lookup(&indexer, index, &se);
+
+    try std.testing.expect(std.meta.eql(retrieve_data.data, data));
+}
+
+test "retrieve non-existant index" {
+    const data: u64 = 1001;
+    const index: u64 = 200;
+    const testType = struct {
+        data: u64,
+        index: u64,
+    };
+
+    const heap_location = "testing/heap.db";
+    const index_file_location = "testing/index.ind";
+
+    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location) catch {};
+    path_utils.delete_file_abs_or_cwd(std.testing.io, heap_location) catch {};
+
+    var linear_se = try LinearSE.linearStorageEngine(testType).init(std.testing.allocator, .{ .io = std.testing.io, .heap_file_location = heap_location });
+    defer linear_se.deinit();
+    const linIndexType = LinearIndexer(testType, u64, "index");
+
+    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    defer indexer.deinit();
+
+    var se = linear_se.storage_engine();
+
+    try linIndexType.index(&indexer, .{ .index = index, .data = data }, &se);
+    const bad_lookup = linIndexType.lookup(&indexer, index + 1, &se);
+
+    try std.testing.expectError(Indexer.IndexerError.CouldNotFindIndex, bad_lookup);
+}
+
+test "delete entry" {
+    const data: u64 = 1001;
+    const index: u64 = 200;
+    const testType = struct {
+        data: u64,
+        index: u64,
+    };
+
+    const heap_location = "testing/heap.db";
+    const index_file_location = "testing/index.ind";
+
+    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location) catch {};
+    path_utils.delete_file_abs_or_cwd(std.testing.io, heap_location) catch {};
+
+    var linear_se = try LinearSE.linearStorageEngine(testType).init(std.testing.allocator, .{ .io = std.testing.io, .heap_file_location = heap_location });
+    defer linear_se.deinit();
+    const linIndexType = LinearIndexer(testType, u64, "index");
+
+    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    defer indexer.deinit();
+
+    var se = linear_se.storage_engine();
+
+    try linIndexType.index(&indexer, .{ .index = index, .data = data }, &se);
+    // const inref_copy = indexer.entries[indexer.filled_entries - 1];
+    try linIndexType.delete(&indexer, index, &se);
+
+    try std.testing.expect(indexer.filled_entries == 0);
+    // try std.testing.expect(!std.meta.eql(indexer.entries[0], inref_copy));
+}
+
+test "delete entry with multiple entries" {
+    const data: u64 = 1001;
+    const index: u64 = 200;
+    const testType = struct {
+        data: u64,
+        index: u64,
+    };
+
+    const heap_location = "testing/heap.db";
+    const index_file_location = "testing/index.ind";
+
+    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location, ju) catch {};
+    path_utils.delete_file_abs_or_cwd(std.testing.io, heap_location) catch {};
+
+    var linear_se = try LinearSE.linearStorageEngine(testType).init(std.testing.allocator, .{ .io = std.testing.io, .heap_file_location = heap_location });
+    defer linear_se.deinit();
+    const linIndexType = LinearIndexer(testType, u64, "index");
+
+    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    defer indexer.deinit();
+
+    var se = linear_se.storage_engine();
+
+    try linIndexType.index(&indexer, .{ .index = index - 1, .data = data - 2 }, &se);
+    const first_ref = indexer.entries[0];
+    try linIndexType.index(&indexer, .{ .index = index, .data = data }, &se);
+    try linIndexType.index(&indexer, .{ .index = index + 2, .data = data + 3 }, &se);
+    const second_ref = indexer.entries[2];
+    // const inref_copy = indexer.entries[indexer.filled_entries - 1];
+    try linIndexType.delete(&indexer, index, &se);
+
+    try std.testing.expect(indexer.filled_entries == 2);
+    try std.testing.expect(std.meta.eql(indexer.entries[0], first_ref));
+    try std.testing.expect(std.meta.eql(indexer.entries[1], second_ref));
 }
