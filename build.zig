@@ -32,6 +32,11 @@ pub fn build(b: *std.Build) void {
     });
     linear_scan.addImport("Databases", database);
 
+    const cmd_ui = b.addModule("CommandLine", .{
+        .root_source_file = b.path("src/cmdlineif/root.zig"),
+        .target = target,
+    });
+
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
     // to the module defined above, it's sometimes preferable to split business
@@ -71,6 +76,7 @@ pub fn build(b: *std.Build) void {
                 // importing modules from different packages).
                 .{ .name = "database", .module = database },
                 .{ .name = "linear_scan", .module = linear_scan },
+                .{ .name = "parser", .module = cmd_ui },
             },
         }),
     });
@@ -116,10 +122,14 @@ pub fn build(b: *std.Build) void {
     const linear_scan_test = b.addTest(.{
         .root_module = linear_scan,
     });
+    const cmd_ui_test = b.addTest(.{
+        .root_module = cmd_ui,
+    });
 
     // A run step that will run the test executable.
     const run_db_test = b.addRunArtifact(db_test);
     const run_linear_scan_test = b.addRunArtifact(linear_scan_test);
+    const run_cmd_ui_test = b.addRunArtifact(cmd_ui_test);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
@@ -138,6 +148,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_db_test.step);
     test_step.dependOn(&run_linear_scan_test.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_cmd_ui_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

@@ -238,7 +238,7 @@ test "delete entry with multiple entries" {
     const heap_location = "testing/heap.db";
     const index_file_location = "testing/index.ind";
 
-    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location, ju) catch {};
+    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location) catch {};
     path_utils.delete_file_abs_or_cwd(std.testing.io, heap_location) catch {};
 
     var linear_se = try LinearSE.linearStorageEngine(testType).init(std.testing.allocator, .{ .io = std.testing.io, .heap_file_location = heap_location });
