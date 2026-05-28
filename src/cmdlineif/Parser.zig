@@ -1,0 +1,47 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Command = @import("Command.zig");
+const Argument = @import("Argument.zig");
+const Option = @import("Option.zig");
+
+const Self = @This();
+
+pub const ParseError = error{
+    InvalidOption,
+};
+
+pub fn parse(input: []const u8, alloc: Allocator) !Command {
+    var cmd = try Command.init(alloc);
+    var it = std.mem.splitAny(u8, input, " ");
+    var i: u64 = 0;
+    var opt_pos: usize = 0; // To differentiate Arguments and Options
+    while (it.next()) |segment| {
+        opt_pos = 0; 
+        while (segment[opt_pos] == '-') {
+            opt_pos += 1;
+        }
+
+        if (opt_pos > 2) {
+            cmd.deinit(alloc);
+            return ParseError.InvalidOption;
+        }
+        if (opt_pos > 0) { // Found Option
+            try cmd.addOption(.{
+                .long_form = segment[opt_pos ..],
+                .short_form = segment[opt_pos],
+            }, alloc);
+        } else {
+            try cmd.addArgument(.{ .name = segment }, alloc);
+        }
+        i += 1;
+    }
+    return cmd;
+}
+
+test parse {
+    var cmd = try Self.parse("CMD -f a", std.testing.allocator);
+    defer cmd.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, cmd.fragments[0].Arg.name, "CMD");
+    try std.testing.expectEqualSlices(u8, cmd.fragments[1].Opt.long_form, "f");
+    try std.testing.expectEqualSlices(u8, cmd.fragments[2].Arg.name, "a");
+}
