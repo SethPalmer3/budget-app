@@ -8,6 +8,7 @@ const Self = @This();
 
 pub const ParseError = error{
     InvalidOption,
+    FirstSegmentNotArg,
 };
 
 pub fn parse(input: []const u8, alloc: Allocator) !Command {
@@ -26,6 +27,10 @@ pub fn parse(input: []const u8, alloc: Allocator) !Command {
             return ParseError.InvalidOption;
         }
         if (opt_pos > 0) { // Found Option
+            if (i == 0) { // First segment should be an argument
+                cmd.deinit(alloc);
+                return ParseError.FirstSegmentNotArg;
+            }
             try cmd.addOption(.{
                 .long_form = segment[opt_pos ..],
                 .short_form = segment[opt_pos],
@@ -44,4 +49,15 @@ test parse {
     try std.testing.expectEqualSlices(u8, cmd.fragments[0].Arg.name, "CMD");
     try std.testing.expectEqualSlices(u8, cmd.fragments[1].Opt.long_form, "f");
     try std.testing.expectEqualSlices(u8, cmd.fragments[2].Arg.name, "a");
+}
+
+test "first segment option" {
+    const cmd = Self.parse("-f", std.testing.allocator);
+    // defer cmd.deinit(std.testing.allocator);
+    try std.testing.expectError(ParseError.FirstSegmentNotArg, cmd);
+}
+
+test "invalid option"{
+    const cmd = Self.parse("CMD ---f a", std.testing.allocator);
+    try std.testing.expectError(ParseError.InvalidOption, cmd);
 }
