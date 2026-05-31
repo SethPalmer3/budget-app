@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     });
     linear_scan.addImport("Databases", database);
 
-    const cmd_ui = b.addModule("CommandLine", .{
+    const cmd_ui = b.addModule("CommandParse", .{
         .root_source_file = b.path("src/cmdlineif/root.zig"),
         .target = target,
     });
