@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const storageEngine = @import("Databases").StorageEngine;
+const storageEngine = @import("Database").StorageEngine;
 const path_utils = @import("./path_funcs.zig");
 
 const fill_character: u8 = 0;

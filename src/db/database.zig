@@ -1,4 +1,6 @@
 const std = @import("std");
+const Indexer = @import("indexer.zig");
+const StorageEngine = @import("storage_engine.zig");
 
 pub const DBError = error{
     CannotInitalize,
@@ -6,28 +8,34 @@ pub const DBError = error{
     NoKeyFound,
 };
 
-/// A generic database interface generator.
-/// T is the datatype for the stored value and
-/// K is the datatype for the corresponding key
-pub fn Database(comptime RecordType: type, comptime KeyType: type) type {
-
-    // 4. Return the generated type storing the parameters.
-    return struct {
+pub fn Database(comptime D: type, comptime R: type, comptime I: type) type {
+    return struct{
+        const SEType = StorageEngine.StorageEngine(D, R);
+        const IType = Indexer.Indexer(I, D, R, SEType);
         const Self = @This();
 
-        pub const Vtable = struct {
-            store: *const fn (*anyopaque, KeyType, RecordType) anyerror!void, // Add data to database
-            retrieve: *const fn (*anyopaque, KeyType) anyerror!RecordType, // Get data from database
-        };
+        storage_engine: *SEType,
+        indexer: *IType,
+        alloc: std.mem.Allocator,
 
-        ptr: *anyopaque,
-        vtable: *const Vtable,
-
-        pub fn storeData(db: Self, key: KeyType, data: RecordType) anyerror!void {
-            return db.vtable.store(db.ptr, key, data);
+        pub fn init(alloc: std.mem.Allocator, indexer: *IType, se: *SEType) Self{
+            return .{
+                .alloc = alloc,
+                .indexer = indexer,
+                .storage_engine = se,
+            };
         }
-        pub fn retrieveData(db: Self, key: KeyType) anyerror!RecordType {
-            return db.vtable.retrieve(db.ptr, key);
+
+        pub fn StoreData(db: *Self, data: D) anyerror!void {
+            try db.indexer.IndexData(data, db.storage_engine);
+        }
+
+        pub fn GetEntriesByIndex(db: *Self, index: I) ![]D {
+            return try db.indexer.LookUpData(index, db.storage_engine);
+        }
+
+        pub fn DeleteByIndex(db: *Self, index: I) !void {
+            return try db.indexer.DeleteData(index, db.storage_engine);
         }
     };
 }

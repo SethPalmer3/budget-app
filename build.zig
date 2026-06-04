@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
 
-    const database = b.addModule("Databases", .{
+    const database = b.addModule("Database", .{
         .root_source_file = b.path("src/db/root.zig"),
         .target = target,
     });
@@ -29,13 +29,28 @@ pub fn build(b: *std.Build) void {
     const linear_scan = b.addModule("LinearScan", .{
         .root_source_file = b.path("src/linear_scan/root.zig"),
         .target = target,
+        .imports = &.{
+            .{.name = "Database", .module = database},
+        },
     });
-    linear_scan.addImport("Databases", database);
 
     const cmd_ui = b.addModule("CommandParse", .{
         .root_source_file = b.path("src/cmdlineif/root.zig"),
         .target = target,
     });
+
+    const main_app = b.addModule("App", .{
+        .root_source_file = b.path("src/app/root.zig"),
+        .target = target,
+        .imports = &.{
+            .{.name = "CommandParse", .module = cmd_ui},
+            .{.name = "Database", .module = database},
+        },
+    });
+
+    // linear_scan.addImport("Databases", database);
+    // main_app.addImport("CommandParse", cmd_ui);
+    // main_app.addImport("Database", database);
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -74,9 +89,10 @@ pub fn build(b: *std.Build) void {
                 // repeated because you are allowed to rename your imports, which
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
-                .{ .name = "database", .module = database },
-                .{ .name = "linear_scan", .module = linear_scan },
-                .{ .name = "parser", .module = cmd_ui },
+                .{ .name = "Database", .module = database },
+                .{ .name = "LinearScan", .module = linear_scan },
+                .{ .name = "CommandParse", .module = cmd_ui },
+                .{ .name = "App", .module = main_app },
             },
         }),
     });
@@ -125,11 +141,15 @@ pub fn build(b: *std.Build) void {
     const cmd_ui_test = b.addTest(.{
         .root_module = cmd_ui,
     });
+    const app_test = b.addTest(.{
+    .root_module = main_app,
+    });
 
     // A run step that will run the test executable.
     const run_db_test = b.addRunArtifact(db_test);
     const run_linear_scan_test = b.addRunArtifact(linear_scan_test);
     const run_cmd_ui_test = b.addRunArtifact(cmd_ui_test);
+    const run_main_app_test = b.addRunArtifact(app_test);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
@@ -149,6 +169,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_linear_scan_test.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_cmd_ui_test.step);
+    test_step.dependOn(&run_main_app_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

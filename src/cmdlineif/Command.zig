@@ -16,6 +16,8 @@ pub const CommandFragment = union(enum) {
 
 fragments: []CommandFragment,
 next_fragment: u64 = 0,
+num_options: u64 = 0,
+num_arguments: u64 = 0,
 
 /// Initalized a new command
 pub fn init(alloc: Allocator) anyerror!Command {
@@ -35,6 +37,7 @@ pub fn addArgument(self: *Command, arg: Argument, alloc: Allocator) anyerror!voi
 
     self.fragments[self.next_fragment] = CommandFragment{ .Arg = arg };
     self.next_fragment += 1;
+    self.num_arguments += 1;
 }
 
 pub fn addOption(self: *Command, opt: Option, alloc: Allocator) anyerror!void {
@@ -44,6 +47,7 @@ pub fn addOption(self: *Command, opt: Option, alloc: Allocator) anyerror!void {
 
     self.fragments[self.next_fragment] = CommandFragment{.Opt = opt };
     self.next_fragment += 1;
+    self.num_options += 1;
 }
 
 pub fn getOption(self: *Command, opt: Option) !*const Option {
