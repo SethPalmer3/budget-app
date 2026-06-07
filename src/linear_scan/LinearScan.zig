@@ -5,8 +5,10 @@ const LinearStorageEngine = @import("linear_storage_engine.zig");
 const LinearIndexer = @import("linear_indexer.zig");
 
 const open_dir_abs_or_cwd = @import("./path_funcs.zig").open_dir_abs_or_cwd;
+const open_file_abs_or_cwd = @import("./path_funcs.zig").open_file_abs_or_cwd;
 const create_dir_abs_or_cwd = @import("./path_funcs.zig").create_dir_abs_or_cwd;
 const read_throw_EOF = @import("./path_funcs.zig").read_throw_EOF;
+const delete_file_abs_or_cwd = @import("./path_funcs.zig").delete_file_abs_or_cwd;
 // const Indexer = @import("indexer");
 // const StorageEngine = @import("storage_engine");
 
@@ -24,17 +26,16 @@ const Options = struct {
 /// large array
 pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type {
     return struct {
+        const Self = @This();
+        const IndexType = @FieldType(RecorcType, Key);
+
         options: Options,
         buff: []u8,
         lin_indexer: LinearIndexer.LinearIndexer(RecorcType, u64, Key),
         lin_se: LinearStorageEngine.linearStorageEngine(RecorcType),
-        const Self = @This();
-        const IndexType = @FieldType(RecorcType, Key);
-
         /// Initalize the generic type and allocate the buffer
         pub fn init(gpa: std.mem.Allocator, options: Options) !Self {
-            const io = options.io;
-            try create_dir_abs_or_cwd(io, options.data_path);
+            // const io = options.io;
             return .{
                 .buff = try gpa.alloc(u8, options.buffer_size),
                 .lin_indexer = try LinearIndexer.LinearIndexer(RecorcType, u64, Key).init(gpa, .{
@@ -45,6 +46,7 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
                 .lin_se = try LinearStorageEngine.linearStorageEngine(RecorcType).init(gpa, .{
                     .heap_file_location = options.heap_file,
                     .io = options.io,
+                    .buff_size = options.buffer_size,
                 }),
                 .options = options,
             };
@@ -67,140 +69,104 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
             return try lse.lin_indexer.indexer().LookUpData(gpa, index, lse.lin_se);
         }
 
-        pub fn database(lse: *Self) Database.Database(RecorcType, u64, IndexType) {
-            return .{ 
-                .ptr = lse, .vtable = 
-                &.{ .store = StoreData, .retrieve =GetDataByIndex, } 
-            };
+        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, u64, IndexType) {
+            return Database.Database(RecorcType, u64, IndexType).init(
+                gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
+            );
         }
     };
 }
 
-// test "load single record to file" {
-//     // std.testing.refAllDecls(@This());
-//     const io = std.testing.io;
-//     const data_path = "testing";
-//     const heap_file_name = "heap.db";
-//
-//     const test_dir = try open_dir_abs_or_cwd(io, data_path);
-//     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
-//
-//     var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
-//     defer lse.deinit(std.testing.allocator);
-//     try lse.storeData(1001, 2002);
-//
-//     const heap_file = try test_dir.openFile(io, heap_file_name, .{ .mode = .read_only });
-//     const heap_file_stat = try heap_file.stat(io);
-//     try std.testing.expect(heap_file_stat.size > 0);
-// }
-//
-// test "read single record from file" {
-//     const key_value: u64 = 1001;
-//     const record_value: u64 = 2002;
-//     const io = std.testing.io;
-//     const data_path = "testing";
-//     const heap_file_name = "heap.db";
-//
-//     const test_dir = try open_dir_abs_or_cwd(io, data_path);
-//     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
-//
-//     var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
-//     defer lse.deinit(std.testing.allocator);
-//     try lse.storeData(key_value, record_value);
-//
-//     const read_value = try lse.getValueByKey(key_value);
-//
-//     try std.testing.expect(std.meta.eql(read_value, record_value));
-// }
-//
-// test "load multiple records to file" {
-//     const io = std.testing.io;
-//     const data_path = "testing";
-//     const heap_file_name = "heap.db";
-//
-//     const test_dir = try open_dir_abs_or_cwd(io, data_path);
-//     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
-//
-//     var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
-//     defer lse.deinit(std.testing.allocator);
-//     try lse.storeData(1001, 2002);
-//
-//     const heap_file = try test_dir.openFile(io, heap_file_name, .{ .mode = .read_only });
-//     defer heap_file.close(io);
-//     var heap_file_stat = try heap_file.stat(io);
-//     const single_record_file_size = heap_file_stat.size;
-//     try lse.storeData(1001, 2002);
-//     heap_file_stat = try heap_file.stat(io);
-//     // std.debug.print("single record size: {d}\ntwo record size: {d}\n", .{ single_record_file_size, heap_file_stat.size });
-//     try std.testing.expect(heap_file_stat.size == 2 * single_record_file_size);
-// }
-//
-// test "multiple load single read" {
-//     const io = std.testing.io;
-//     const data_path = "testing";
-//     const heap_file_name = "heap.db";
-//     const key_value_offset = 1;
-//
-//     const test_dir = try open_dir_abs_or_cwd(io, data_path);
-//     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
-//
-//     var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
-//     defer lse.deinit(std.testing.allocator);
-//
-//     for (0..10) |i| {
-//         try lse.storeData(1001 * (i + 1), 3003 * (i + 1));
-//     }
-//
-//     const read_record = try lse.getValueByKey(1001 * (key_value_offset + 1));
-//     try std.testing.expect(std.meta.eql(read_record, 3003 * (key_value_offset + 1)));
-// }
-//
-// test "comlex record type multiple load single read" {
-//     const record_type = struct {
-//         some_num: u64,
-//         some_float: f64,
-//         some_text: [10]u8,
-//     };
-//     const io = std.testing.io;
-//     const data_path = "testing";
-//     const heap_file_name = "heap.db";
-//     const key_value_offset = 1;
-//
-//     const test_dir = try open_dir_abs_or_cwd(io, data_path);
-//     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
-//
-//     var lse = try LinearStorageDB(record_type, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
-//     defer lse.deinit(std.testing.allocator);
-//
-//     for (0..10) |i| {
-//         try lse.storeData(1001 * (i + 1), .{
-//             .some_num = 1001 * (i + 1),
-//             .some_float = 10.5,
-//             .some_text = .{ 'h', 'e', 'l', 'l', 'o', 0, 0, 0, 0, 0 },
-//         });
-//     }
-//
-//     const read_record = try lse.getValueByKey(1001 * (key_value_offset + 1));
-//     try std.testing.expect(std.meta.eql(read_record.some_num, 1001 * (key_value_offset + 1)));
-// }
-//
-// test "test generic interface" {
-//     const key_value: u64 = 1001;
-//     const record_value: u64 = 2002;
-//     const io = std.testing.io;
-//     const data_path = "testing";
-//     const heap_file_name = "heap.db";
-//
-//     const test_dir = try open_dir_abs_or_cwd(io, data_path);
-//     test_dir.deleteFile(io, heap_file_name) catch {}; // Clear if test ran before
-//
-//     var lse = try LinearStorageDB(u64, u64).init(std.testing.allocator, .{ .data_path = data_path, .io = io, .heap_file_name = heap_file_name, .buffer_size = 1024 });
-//     defer lse.deinit(std.testing.allocator);
-//     var generic_database = lse.database();
-//     try generic_database.storeData(key_value, record_value);
-//
-//     const read_value = try generic_database.retrieveData(key_value);
-//
-//     try std.testing.expect(std.meta.eql(read_value, record_value));
-// }
-//
+
+test "StoreData" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    const heap_file_path = "testing/heap.db";
+    const index_file_path = "testing/index.ind";
+
+    const RecordType = struct {
+        data: u64,
+        index: u64,
+    };
+
+    delete_file_abs_or_cwd(std.testing.io, index_file_path) catch {};
+    delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
+
+    var linDB = try LinearStorageDB(RecordType, "index").init(gpa,
+        .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
+    );
+    defer linDB.deinit(gpa);
+    var db = linDB.database(std.testing.allocator);
+
+    try db.StoreData(.{.data = 1001, .index = 1});
+    const heap_file = try open_file_abs_or_cwd(io, heap_file_path, .{});
+    const index_file = try open_file_abs_or_cwd(io, index_file_path, .{});
+
+    const heap_stat = try heap_file.stat(io);
+    const index_stat = try index_file.stat(io);
+
+    try std.testing.expect(heap_stat.size > 0);
+    try std.testing.expect(index_stat.size > 0);
+
+}
+
+test "GetDataByIndex one record" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    const heap_file_path = "testing/heap.db";
+    const index_file_path = "testing/index.ind";
+
+    const Record = struct {
+        data: u64,
+        index: u64,
+    };
+
+    delete_file_abs_or_cwd(std.testing.io, index_file_path) catch {};
+    delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
+
+    var linDB = try LinearStorageDB(Record, "index").init(gpa,
+        .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
+    );
+    defer linDB.deinit(gpa);
+    var db = linDB.database(std.testing.allocator);
+
+    try db.StoreData(.{.data = 1001, .index = 1});
+
+    const retrieved_data = try db.GetEntriesByIndex(1);
+    defer std.testing.allocator.free(retrieved_data);
+    try std.testing.expect(retrieved_data[0].data.data == 1001);
+}
+
+test "GetDataByIndex multiple record" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    const heap_file_path = "testing/heap.db";
+    const index_file_path = "testing/index.ind";
+    const data: u64 = 1001;
+    const index: u64 = 1;
+
+    const Record = struct {
+        data: u64,
+        index: u64,
+    };
+
+    delete_file_abs_or_cwd(std.testing.io, index_file_path) catch {};
+    delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
+
+    var linDB = try LinearStorageDB(Record, "index").init(gpa,
+        .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
+    );
+    defer linDB.deinit(gpa);
+    var db = linDB.database(std.testing.allocator);
+
+    for(0..10) |i| {
+        try db.StoreData(.{.data = data + i, .index = index});
+    }
+
+    const retrieved_data = try db.GetEntriesByIndex(1);
+    defer std.testing.allocator.free(retrieved_data);
+    try std.testing.expect(retrieved_data.len == 10);
+    for(retrieved_data, 0..) |ret_datum, i| {
+        try std.testing.expect(ret_datum.data.data == (data + i));
+    }
+}

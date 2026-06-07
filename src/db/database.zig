@@ -10,15 +10,19 @@ pub const DBError = error{
 
 pub fn Database(comptime D: type, comptime R: type, comptime I: type) type {
     return struct{
-        const SEType = StorageEngine.StorageEngine(D, R);
-        const IType = Indexer.Indexer(I, D, R, SEType);
+        pub const DataType = D;
+        pub const ReferenceType = R;
+        pub const IndexType = I;
+        const StorageEngineType = StorageEngine.StorageEngine(D, R);
+        const IndexerType = Indexer.Indexer(I, D, R);
+        const DataRefType = IndexerType.DataRefType;
         const Self = @This();
 
-        storage_engine: *SEType,
-        indexer: *IType,
+        storage_engine: StorageEngineType,
+        indexer: IndexerType,
         alloc: std.mem.Allocator,
 
-        pub fn init(alloc: std.mem.Allocator, indexer: *IType, se: *SEType) Self{
+        pub fn init(alloc: std.mem.Allocator, indexer: IndexerType, se: StorageEngineType) Self{
             return .{
                 .alloc = alloc,
                 .indexer = indexer,
@@ -27,15 +31,15 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: type) type {
         }
 
         pub fn StoreData(db: *Self, data: D) anyerror!void {
-            try db.indexer.IndexData(data, db.storage_engine);
+            try db.indexer.IndexData(data, &db.storage_engine);
         }
 
-        pub fn GetEntriesByIndex(db: *Self, index: I) ![]D {
-            return try db.indexer.LookUpData(index, db.storage_engine);
+        pub fn GetEntriesByIndex(db: *Self, index: I) ![]const DataRefType {
+            return try db.indexer.LookUpData(db.alloc, index, &db.storage_engine);
         }
 
         pub fn DeleteByIndex(db: *Self, index: I) !void {
-            return try db.indexer.DeleteData(index, db.storage_engine);
+            return try db.indexer.DeleteData(index, &db.storage_engine);
         }
     };
 }
