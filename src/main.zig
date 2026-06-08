@@ -25,11 +25,12 @@ pub fn main(init: std.process.Init) !void {
     const stdin = std.Io.File.stdin();
     // const stdout = std.Io.File.stdout();
     var stdin_reader = stdin.reader(init.io, buff);
+    var gen_reader = &stdin_reader.interface;
     // var stdout_writer = stdout.writer(init.io, buff);
 
     while (true) {
         const cmd = try Parser.parse();
-        const input = try stdin_reader.takeDelimiterExclusive('\n');
+        const input = try gen_reader.takeDelimiterInclusive('\n');
         const parsed = try Parser.parse(input, gpa);
         const subcommand = parsed.getNthArg(1);
         if (std.mem.eql(u8, subcommand, AddSubCommand)) {

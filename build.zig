@@ -142,7 +142,7 @@ pub fn build(b: *std.Build) void {
         .root_module = cmd_ui,
     });
     const app_test = b.addTest(.{
-    .root_module = main_app,
+        .root_module = main_app,
     });
 
     // A run step that will run the test executable.
