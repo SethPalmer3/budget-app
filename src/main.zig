@@ -5,6 +5,8 @@ const LinearScan = @import("LinearScan");
 const Databases = @import("Database");
 const Parser = CommandParse.Parser;
 const TerminalCommands = @import("app/term_commands.zig");
+const Diagnostics = @import("app/diagnostics.zig");
+const CLIErrors = TerminalCommands.CLIError;
 
 const datalocation = "data/heap.db";
 const AddSubCommand = "ADD";
@@ -23,18 +25,30 @@ pub fn main(init: std.process.Init) !void {
     var generic_db = linear_db.database(gpa);
 
     const stdin = std.Io.File.stdin();
-    // const stdout = std.Io.File.stdout();
+    const stdout = std.Io.File.stdout();
     var stdin_reader = stdin.reader(init.io, buff);
     var gen_reader = &stdin_reader.interface;
-    // var stdout_writer = stdout.writer(init.io, buff);
+    var stdout_writer = stdout.writer(init.io, buff);
+    var gen_writer = &stdout_writer.interface;
 
     while (true) {
         const cmd = try Parser.parse();
         const input = try gen_reader.takeDelimiterInclusive('\n');
         const parsed = try Parser.parse(input, gpa);
         const subcommand = parsed.getNthArg(1);
+        var diags: Diagnostics = undefined;
         if (std.mem.eql(u8, subcommand, AddSubCommand)) {
-            try TerminalCommands.handleAdd(&cmd, &generic_db);
+            const item = TerminalCommands.handleAdd(&cmd, &diags) catch |err| {
+                switch (err) {
+                    CLIErrors.NotEnoughArguments => {
+                        gen_writer.print("Not enough arguments for this subcommand,\nexpected 5 got {d} instead\n", .{parsed.num_arguments});
+                    }
+                    CLIErrors.InvalidArgument => {
+                        gen_writer.print("One of your arguments is invalid", .{});
+                    }
+                }
+            };
+            generic_db.StoreData(item);
         }
     }
 }
