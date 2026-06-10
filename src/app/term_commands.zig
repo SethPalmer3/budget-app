@@ -68,9 +68,9 @@ pub const budget_item = struct {
     desc: [desc_length]u8,
 };
 
-fn returnError(err: anyerror, msg: []const u8, diag: ?*Diagnostic) anyerror {
+fn returnError(err: anyerror, comptime fmt: []const u8, args: anytype, diag: ?*Diagnostic) anyerror {
     if(diag) |d| {
-        d.msg = msg;
+        _ = std.fmt.bufPrint(&d.msg, fmt, args) catch {};
     }
     return err;
 }
@@ -78,29 +78,32 @@ fn returnError(err: anyerror, msg: []const u8, diag: ?*Diagnostic) anyerror {
 // NEW (BUDGET/TRANSACTION) NAME CATEGORY AMOUNT DESC -> ID
 pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !budget_item{
     var next_arg: u64 = 1;
+    const min_num_args = 5;
     const subcommand = try parsed.getNthArg(next_arg);
     next_arg += 1;
     var item: budget_item = undefined;
     if(!std.mem.eql(u8, subcommand.name, "ADD")){
-        return returnError(CLIError.UnknownCommand,  "Cannot handle subcommands other than \"ADD\"", diags);
+        return returnError(
+            CLIError.UnknownCommand, "Cannot handle subcommands other than \"ADD\"\n", .{}, diags
+        );
     } // Check subsubcommand
 
-    if (parsed.num_arguments < 5){ // check arguments
-        return returnError(CLIError.NotEnoughArguments,  "Too many arguments passed to the sub command", diags);
+    if (parsed.num_arguments < min_num_args){ // check arguments
+        return returnError(CLIError.NotEnoughArguments, "Too many arguments passed to the sub command, expected {d}\n", .{min_num_args}, diags);
     }
     // Get item type
     const item_type_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
     if( budgetItemType.convertStrToItemType(item_type_str.name)) |item_type| {
         item.type = item_type;
-    }else{
-        return returnError(CLIError.InvalidArgument, "(WIP)Unkown budget item", diags);
+    }else{ // Cannot convert argument to a type
+        return returnError(CLIError.InvalidArgument, "Unkown type {s}\n", .{item_type_str.name}, diags);
     }
     // get the name 
     const name_arg = try parsed.getNthArg(next_arg);
     next_arg += 1;
     if (name_arg.name.len > name_length){
-        return CLIError.InvalidArgument;
+        return returnError(CLIError.InvalidArgument, "Length of the name of the record is too large, must be at most {d} characters\n", .{name_length}, diags);
     }
     std.mem.copyForwards(u8, &item.name, name_arg.name);
     // get the budget category
@@ -109,12 +112,15 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !budget_ite
     if(budgetItemCategory.convertStrToCategory(item_category_str.name)) |item_category|{
         item.category = item_category;
     }else{
-        return CLIError.InvalidArgument;
+        return returnError(CLIError.InvalidArgument, "Unkown category {s}\n", .{item_category_str.name}, diags);
     }
     // get ammount
     const item_amount_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    item.amount = @trunc((try std.fmt.parseFloat(f32, item_amount_str.name)) * 100.0);
+    const parsed_float_from_arg = std.fmt.parseFloat(f32, item_amount_str.name) catch |err| {
+        return returnError(err, "Cannot parse the given record amount \"{s}\"\n", .{item_amount_str.name}, diags);
+    };
+    item.amount = @trunc(parsed_float_from_arg * 100.0);
     // get description
     var next_desc_position: u64 = 0;
     while(parsed.getNthArg(next_arg)) |arg| : (next_arg += 1)  {
@@ -129,11 +135,15 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !budget_ite
 }
 
 test handleAdd {
-    // ADD (BUDGET/TRANSACTION) NAME CATEGORY AMOUNT DESC -> ID
-    const test_str = "ADD Budget test Income 123.45 test desc";
+    // ADD TYPE NAME CATEGORY AMOUNT DESC -> ID
+    const test_str = "ADD budget test Income 123.45 test desc";
+    var diags: Diagnostic = .{};
     var parser = try CommandParse.Parser.parse(test_str, std.testing.allocator);
     defer parser.deinit(std.testing.allocator);
-    const item = try handleAdd(&parser);
+    const item = handleAdd(&parser, &diags) catch |err| {
+        std.debug.print("\n\n\n---{s}---\n\n\n", .{std.mem.sliceTo(&diags.msg, 0)});
+        return err;
+    };
 
     try std.testing.expect(item.type == .Budget);
     try std.testing.expectEqualStrings("test", item.name[0..4]);

@@ -51,13 +51,13 @@ pub fn addOption(self: *Command, opt: Option, alloc: Allocator) anyerror!void {
 }
 
 pub fn getOption(self: *Command, opt: Option) !*const Option {
-    for (self.fragments) |fragment| {
+    for (self.fragments, 0..) |fragment, i| {
         if(fragment != .Opt){continue;}
         const frag_opt = fragment.Opt;
 
         if((opt.has_short_form and frag_opt.has_short_form and opt.short_form == frag_opt.short_form) or
             (opt.has_long_form and frag_opt.has_long_form and std.mem.eql(u8, opt.long_form, frag_opt.long_form))){
-            return &fragment.Opt;
+            return &self.fragments[i].Opt;
         }
     }
     return CommandError.CannotFindFragment;
@@ -68,10 +68,10 @@ pub fn getOption(self: *Command, opt: Option) !*const Option {
 /// should return the command word(i.e. the first argument).
 pub fn getNthArg(self: *Command, ind: usize) !*const Argument{
     var nth_arg: usize = 1;
-    for(self.fragments) |fragment| {
+    for(self.fragments, 0..) |fragment, i| {
         if(fragment != .Arg){continue;}
         if(nth_arg == ind){
-            return &fragment.Arg;
+            return &self.fragments[i].Arg;
         }
         nth_arg += 1;
     }

@@ -38,15 +38,9 @@ pub fn main(init: std.process.Init) !void {
         const subcommand = parsed.getNthArg(1);
         var diags: Diagnostics = undefined;
         if (std.mem.eql(u8, subcommand, AddSubCommand)) {
-            const item = TerminalCommands.handleAdd(&cmd, &diags) catch |err| {
-                switch (err) {
-                    CLIErrors.NotEnoughArguments => {
-                        gen_writer.print("Not enough arguments for this subcommand,\nexpected 5 got {d} instead\n", .{parsed.num_arguments});
-                    }
-                    CLIErrors.InvalidArgument => {
-                        gen_writer.print("One of your arguments is invalid", .{});
-                    }
-                }
+            const item = TerminalCommands.handleAdd(&cmd, &diags) catch {
+                gen_writer.write(diags.msg);
+
             };
             generic_db.StoreData(item);
         }
