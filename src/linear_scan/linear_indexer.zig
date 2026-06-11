@@ -15,17 +15,7 @@ pub const Options = struct {
     buffer_size: usize = 1024,
 };
 
-pub fn LinearIndexer(comptime DataType: type, comptime ReferenceType: type, comptime index_on: []const u8) type {
-    const data_type_info = @typeInfo(DataType);
-    if (data_type_info != .@"struct") {
-        @compileError("Expected a tuple or struct as the DataType, got " ++ @typeName(DataType));
-    }
-    if (!@hasField(DataType, index_on)) {
-        @compileError("\'" ++ index_on ++ "\' is not a field in " ++ @typeName(DataType));
-    }
-    const IndexType = @FieldType(DataType, index_on);
-    const dummy_se: StorageEngine.StorageEngine(DataType, ReferenceType) = undefined;
-    const DataRefType = Indexer.Indexer(IndexType, DataType, ReferenceType).DataRefType;
+pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) type {
     const IndexRefType = struct {
         index_value: IndexType,
         reference_value: ReferenceType,
@@ -72,7 +62,7 @@ pub fn LinearIndexer(comptime DataType: type, comptime ReferenceType: type, comp
         /// Adds index to the cached results and the data to the storage engine
         /// If the index is the same as an already stored index the indexer needs
         /// to store both.
-        pub fn index(ptr: *anyopaque, data: DataType, se: *@TypeOf(dummy_se)) !void {
+        pub fn index(ptr: *anyopaque, ind: IndexType, ref: ReferenceType) !void {
             const indxr: *Self = @ptrCast(@alignCast(ptr));
 
             // Resize entries list
@@ -80,9 +70,7 @@ pub fn LinearIndexer(comptime DataType: type, comptime ReferenceType: type, comp
                 indxr.entries = try indxr.allocator.realloc(indxr.entries, indxr.entries.len * 2);
             }
 
-            const ref = try se.StoreData(data);
-
-            indxr.entries[indxr.filled_entries] = .{ .index_value = @field(data, index_on), .reference_value = ref };
+            indxr.entries[indxr.filled_entries] = .{ .index_value = ind, .reference_value = ref };
             var index_file_writer = indxr.index_file.writer(indxr.options.io, indxr.buffer);
             var gen_writer = &index_file_writer.interface;
 
@@ -91,21 +79,17 @@ pub fn LinearIndexer(comptime DataType: type, comptime ReferenceType: type, comp
             indxr.filled_entries += 1;
         }
 
-        pub fn lookup(ptr: *anyopaque, alloc: std.mem.Allocator, index_value: IndexType, se: *@TypeOf(dummy_se)) ![]DataRefType{
+        pub fn lookup(ptr: *anyopaque, alloc: std.mem.Allocator, index_value: IndexType) ![]const ReferenceType{
             const indxr: *Self = @ptrCast(@alignCast(ptr));
             const num_instances: u64 = indxr.countEntriesWithIndex(index_value);
             if (num_instances == 0) {
-                return Databases.Indexer.IndexerError.CouldNotFindIndex;
+                return Indexer.IndexerError.CouldNotFindIndex;
             }
-            var entries = try alloc.alloc(DataRefType, num_instances);
+            var entries = try alloc.alloc(ReferenceType, num_instances);
             var currenty_entry_index: usize = 0;
             for (indxr.entries) |entry| {
                 if (std.meta.eql(entry.index_value, index_value)) {
-                    const retrieved = se.RetrieveData(entry.reference_value) catch |err| {
-                        alloc.free(entries);
-                        return err;
-                    };
-                    entries[currenty_entry_index] = .{ .data = retrieved, .ref = entry.reference_value };
+                    entries[currenty_entry_index] = ;
                     currenty_entry_index += 1;
                 }
             }
