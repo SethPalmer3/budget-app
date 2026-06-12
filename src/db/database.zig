@@ -14,8 +14,7 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: type) type {
         pub const ReferenceType = R;
         pub const IndexType = I;
         const StorageEngineType = StorageEngine.StorageEngine(D, R);
-        const IndexerType = Indexer.Indexer(I, D, R);
-        const DataRefType = IndexerType.DataRefType;
+        const IndexerType = Indexer.Indexer(I, R);
         const Self = @This();
 
         storage_engine: StorageEngineType,
@@ -30,16 +29,27 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: type) type {
             };
         }
 
-        pub fn StoreData(db: *Self, data: D) anyerror!void {
-            try db.indexer.IndexData(data, &db.storage_engine);
+        pub fn StoreData(db: *Self, index: I, data: D) anyerror!void {
+            const ref = try db.storage_engine.StoreData(data);
+            try db.indexer.Index(index, ref);
         }
 
-        pub fn GetEntriesByIndex(db: *Self, index: I) ![]const DataRefType {
-            return try db.indexer.LookUpData(db.alloc, index, &db.storage_engine);
+        pub fn GetEntriesByIndex(db: *Self, index: I) ![]const D {
+            const refs = try db.indexer.LookUpData(db.alloc, index);
+            defer db.alloc.free(refs);
+            const retrieved_data = try db.alloc.alloc(D, refs.len);
+            for (refs, 0..) |ref, i| {
+                retrieved_data[i] = try db.storage_engine.RetrieveData(ref);
+            }
+            return retrieved_data;
         }
 
         pub fn DeleteByIndex(db: *Self, index: I) !void {
-            return try db.indexer.DeleteData(index, &db.storage_engine);
+            const refs = try db.indexer.LookUpData(db.alloc, index, &db.storage_engine);
+            defer db.alloc.free(refs);
+            for (refs) |ref| {
+                try db.storage_engine.DeleteData(ref);
+            }
         }
     };
 }

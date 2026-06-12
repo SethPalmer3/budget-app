@@ -6,7 +6,7 @@ pub const IndexerError = error{
 };
 
 /// Generic indexing type used for databases
-pub fn Indexer(comptime IndexType: type, DataType: type, ReferenceType: type) type {
+pub fn Indexer(comptime IndexType: type, ReferenceType: type) type {
     return struct {
         const Self = @This();
 

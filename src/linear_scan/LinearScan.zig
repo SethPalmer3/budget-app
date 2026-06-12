@@ -27,18 +27,27 @@ const Options = struct {
 pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type {
     return struct {
         const Self = @This();
+        comptime {
+            const record_type_info = @typeInfo(RecorcType);
+            if(record_type_info != .@"struct"){
+                @compileError("Must be a struct or a tuple");
+            }
+            if(!@hasField(RecorcType, Key)){
+                @compileError("The Key must be a field with in the record type");
+            }
+        }
         const IndexType = @FieldType(RecorcType, Key);
 
         options: Options,
         buff: []u8,
-        lin_indexer: LinearIndexer.LinearIndexer(RecorcType, u64, Key),
+        lin_indexer: LinearIndexer.LinearIndexer(IndexType, u64),
         lin_se: LinearStorageEngine.linearStorageEngine(RecorcType),
         /// Initalize the generic type and allocate the buffer
         pub fn init(gpa: std.mem.Allocator, options: Options) !Self {
             // const io = options.io;
             return .{
                 .buff = try gpa.alloc(u8, options.buffer_size),
-                .lin_indexer = try LinearIndexer.LinearIndexer(RecorcType, u64, Key).init(gpa, .{
+                .lin_indexer = try LinearIndexer.LinearIndexer(IndexType, u64).init(gpa, .{
                     .index_file = options.index_file,
                     .io = options.io,
                     .buffer_size = options.buffer_size,
@@ -98,7 +107,7 @@ test "StoreData" {
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
 
-    try db.StoreData(.{.data = 1001, .index = 1});
+    try db.StoreData(1, .{.data = 1001, .index = 1});
     const heap_file = try open_file_abs_or_cwd(io, heap_file_path, .{});
     const index_file = try open_file_abs_or_cwd(io, index_file_path, .{});
 
@@ -130,11 +139,11 @@ test "GetDataByIndex one record" {
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
 
-    try db.StoreData(.{.data = 1001, .index = 1});
+    try db.StoreData(1, .{.data = 1001, .index = 1});
 
     const retrieved_data = try db.GetEntriesByIndex(1);
     defer std.testing.allocator.free(retrieved_data);
-    try std.testing.expect(retrieved_data[0].data.data == 1001);
+    try std.testing.expect(retrieved_data[0] == 1001);
 }
 
 test "GetDataByIndex multiple record" {
