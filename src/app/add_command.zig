@@ -46,23 +46,26 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     var temp_date: Date = undefined;
     if(it.next()) |day_str| { // Getting day
         temp_date.day = std.fmt.parseInt(u8, day_str, 10) catch |err| {
-            return returnError(err, "Could not parse the day section {s}\n", .{day_str}, diags);
+            return returnError(err, "Could not parse the day section \"{s}\"\n", .{day_str}, diags);
         };
-    }    
+    }
     if(it.next()) |month_str| { // Getting month
         temp_date.month = std.fmt.parseInt(u8, month_str, 10) catch |err| {
-            return returnError(err, "Could not parse the month section {s}\n", .{month_str}, diags);
+            return returnError(err, "Could not parse the month section \"{s}\"\n", .{month_str}, diags);
         };
     }else{
         return returnError(CLIError.InvalidArgument, "The date argument must have a month section\n", .{}, diags);
     }
     if(it.next()) |year_str| { // Getting month
         temp_date.year = std.fmt.parseInt(u64, year_str, 10) catch |err| {
-            return returnError(err, "Could not parse the year section {s}\n", .{year_str}, diags);
+            return returnError(err, "Could not parse the year section \"{s}\"\n", .{year_str}, diags);
         };
     }else{
-        return returnError(CLIError.InvalidArgument, "The date argument must have a year section\n", .{}, diags);
+        return returnError(
+            CLIError.InvalidArgument, "The date argument must have a year section\n", .{}, diags
+        );
     }
+    item.date = temp_date;
     //------------ Getting Record Name -------------------
     const name_arg = try parsed.getNthArg(next_arg);
     next_arg += 1;
@@ -93,7 +96,6 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
         next_desc_position += arg.name.len + 1;
     }else |_|{} // Discard error
 
-
     return item;
 }
 
@@ -109,7 +111,7 @@ test handleAdd {
     };
 
     try std.testing.expect(item.type == .Budget);
-    try std.testing.expect(item.date.eql(&.{.day = 1, .month = 1, .year = 2026}));
+    try std.testing.expectEqual(item.date, Date{.day = 1, .month = 1, .year = 2026});
     try std.testing.expectEqualStrings("test", item.name[0..4]);
     try std.testing.expect(item.category == .Income);
     try std.testing.expect(item.amount == 12345);

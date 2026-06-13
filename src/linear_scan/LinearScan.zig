@@ -143,7 +143,7 @@ test "GetDataByIndex one record" {
 
     const retrieved_data = try db.GetEntriesByIndex(1);
     defer std.testing.allocator.free(retrieved_data);
-    try std.testing.expect(retrieved_data[0] == 1001);
+    try std.testing.expectEqual(Record{.index = 1, .data = 1001}, retrieved_data[0]);
 }
 
 test "GetDataByIndex multiple record" {
@@ -169,13 +169,13 @@ test "GetDataByIndex multiple record" {
     var db = linDB.database(std.testing.allocator);
 
     for(0..10) |i| {
-        try db.StoreData(.{.data = data + i, .index = index});
+        try db.StoreData(index, .{.data = data + i, .index = index});
     }
 
     const retrieved_data = try db.GetEntriesByIndex(1);
     defer std.testing.allocator.free(retrieved_data);
     try std.testing.expect(retrieved_data.len == 10);
     for(retrieved_data, 0..) |ret_datum, i| {
-        try std.testing.expect(ret_datum.data.data == (data + i));
+        try std.testing.expect(ret_datum.data == (data + i));
     }
 }
