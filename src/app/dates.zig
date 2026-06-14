@@ -1,9 +1,10 @@
-const std = @import("std");
-
-const Self = @This();
 day: u8,
 month: u8,
 year: u64,
+
+const std = @import("std");
+
+const Self = @This();
 
 pub fn lt(self: *const Self, other: *const Self) bool {
     return self.year < other.year or self.month < other.month or self.day < other.day;
