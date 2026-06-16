@@ -45,6 +45,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{.name = "CommandParse", .module = cmd_ui},
             .{.name = "Database", .module = database},
+            // .{.name = "LinearScan", .module = linear_scan},
         },
     });
 

@@ -3,13 +3,20 @@ const Io = std.Io;
 const CommandParse = @import("CommandParse");
 const LinearScan = @import("LinearScan");
 const Databases = @import("Database");
+const App = @import("App");
+
 const Parser = CommandParse.Parser;
-const TerminalCommands = @import("app/term_commands.zig");
-const Diagnostics = @import("app/diagnostics.zig");
+
+const Date = App.Dates;
+const TerminalCommands = App.TermCommands;
+
+const Diagnostics = TerminalCommands.Diagnostic;
 const CLIErrors = TerminalCommands.CLIError;
+const Record = TerminalCommands.Record;
 
 const datalocation = "data/heap.db";
 const AddSubCommand = "ADD";
+const ListSubCommand = "LIST";
 
 // const budget_app = @import("budget_app");
 
@@ -24,7 +31,7 @@ pub fn main(init: std.process.Init) !void {
     var linear_db = try LinearScan.LinearScanDB.LinearStorageDB(TerminalCommands.Record, "date")
         .init(gpa, .{.heap_file = "data/heap.db", .index_file = "data/index.ind", .io = init.io});
     defer linear_db.deinit(gpa);
-    var inf_database = linear_db.infere_database(gpa);
+    var database = linear_db.database(gpa);
 
     const stdin = std.Io.File.stdin();
     const stdout = std.Io.File.stdout();
@@ -44,7 +51,6 @@ pub fn main(init: std.process.Init) !void {
         var diags: Diagnostics = undefined;
         if (std.mem.eql(u8, subcommand.name, AddSubCommand)) {
             std.debug.print("Parsing add command {s}\n", .{subcommand.name});
-            // try gen_writer.print("Parsing add command {s}\n", .{subcommand.name});
             const item = TerminalCommands.AddCommand.handleAdd(&cmd, &diags) catch {
                _ = try gen_writer.print("Error - {s}\n", .{&diags.msg});
                 // try stdout_writer.flush();
@@ -52,7 +58,19 @@ pub fn main(init: std.process.Init) !void {
                continue;
             };
             std.debug.print("Diagnostics message: {s}\n", .{&diags.msg});
-            try inf_database.StoreData(item);
+            try database.StoreData(item);
+        }
+        else if(std.mem.eql(u8, subcommand.name, ListSubCommand)){
+            std.debug.print("Parsing list command {s}\n", .{subcommand.name});
+            const items = TerminalCommands.ListCommand.handleList(Record, u64, "date", cmd, Date.convertStr, database, diags) catch {
+                _ = try gen_writer.print("Error - {s}\n", .{&diags.msg});
+                cmd.deinit(gpa);
+                continue;
+            };
+            for(items) |item| {
+                item.display(gen_writer);
+                gen_writer.print("\n", .{});
+            }
         }
         else {
             _ = try gen_writer.write("Not a known command\n");

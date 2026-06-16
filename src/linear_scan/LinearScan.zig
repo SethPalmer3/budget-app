@@ -19,7 +19,6 @@ const Options = struct {
     buffer_size: usize = 1024,
 };
 
-
 /// Main controller structure for the linear scan database
 /// the database will just append the most recent data to
 /// end of the heap file and will scan through it like a
@@ -78,8 +77,8 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
             return try lse.lin_indexer.indexer().LookUpData(gpa, index, lse.lin_se);
         }
 
-        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, u64, IndexType) {
-            return Database.Database(RecorcType, u64, IndexType).init(
+        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, u64, Key) {
+            return Database.Database(RecorcType, u64, Key).init(
                 gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
             );
         }

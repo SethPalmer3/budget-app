@@ -34,7 +34,7 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     //------------ Getting Record Type -------------------
     const item_type_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    if( recordType.convertStrToItemType(item_type_str.name)) |item_type| {
+    if( recordType.convertStr(item_type_str.name)) |item_type| {
         item.type = item_type;
     }else{ // Cannot convert argument to a type
         return returnError(CLIError.InvalidArgument, "Unkown type {s}\n", .{item_type_str.name}, diags);
@@ -42,30 +42,9 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     //------------ Getting Record Date -------------------
     const item_date_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    var it = std.mem.splitAny(u8, item_date_str.name, "/");
-    var temp_date: Date = undefined;
-    if(it.next()) |day_str| { // Getting day
-        temp_date.day = std.fmt.parseInt(u8, day_str, 10) catch |err| {
-            return returnError(err, "Could not parse the day section \"{s}\"\n", .{day_str}, diags);
-        };
-    }
-    if(it.next()) |month_str| { // Getting month
-        temp_date.month = std.fmt.parseInt(u8, month_str, 10) catch |err| {
-            return returnError(err, "Could not parse the month section \"{s}\"\n", .{month_str}, diags);
-        };
-    }else{
-        return returnError(CLIError.InvalidArgument, "The date argument must have a month section\n", .{}, diags);
-    }
-    if(it.next()) |year_str| { // Getting month
-        temp_date.year = std.fmt.parseInt(u64, year_str, 10) catch |err| {
-            return returnError(err, "Could not parse the year section \"{s}\"\n", .{year_str}, diags);
-        };
-    }else{
-        return returnError(
-            CLIError.InvalidArgument, "The date argument must have a year section\n", .{}, diags
-        );
-    }
-    item.date = temp_date;
+    item.date = Date.convertStr(item_date_str.name) catch |err| {
+        return returnError(err, "Could not parse the date correctly\n", .{}, diags);
+    };
     //------------ Getting Record Name -------------------
     const name_arg = try parsed.getNthArg(next_arg);
     next_arg += 1;
@@ -76,7 +55,7 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     //------------ Getting Record Category -------------------
     const item_category_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    if(recordCategory.convertStrToCategory(item_category_str.name)) |item_category|{
+    if(recordCategory.convertStr(item_category_str.name)) |item_category|{
         item.category = item_category;
     }else{
         return returnError(CLIError.InvalidArgument, "Unkown category {s}\n", .{item_category_str.name}, diags);
