@@ -52,24 +52,25 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, subcommand.name, AddSubCommand)) {
             std.debug.print("Parsing add command {s}\n", .{subcommand.name});
             const item = TerminalCommands.AddCommand.handleAdd(&cmd, &diags) catch {
-               _ = try gen_writer.print("Error - {s}\n", .{&diags.msg});
+                _ = try gen_writer.print("Error - {s}\n", .{diags.msg[0..diags.msg_size]});
                 // try stdout_writer.flush();
                 cmd.deinit(gpa);
                continue;
             };
-            std.debug.print("Diagnostics message: {s}\n", .{&diags.msg});
-            try database.StoreData(item);
+            try database.StoreData(.{.data = item});
         }
         else if(std.mem.eql(u8, subcommand.name, ListSubCommand)){
             std.debug.print("Parsing list command {s}\n", .{subcommand.name});
-            const items = TerminalCommands.ListCommand.handleList(Record, u64, "date", cmd, Date.convertStr, database, diags) catch {
-                _ = try gen_writer.print("Error - {s}\n", .{&diags.msg});
+            const items = TerminalCommands.ListCommand.handleList(
+                Record, u64, "date", &cmd, Date.convertStr, &database, &diags
+            ) catch {
+                _ = try gen_writer.print("Error - {s}\n", .{diags.msg[0..diags.msg_size]});
                 cmd.deinit(gpa);
                 continue;
             };
             for(items) |item| {
                 item.display(gen_writer);
-                gen_writer.print("\n", .{});
+                gen_writer.print("\n", .{}) catch {};
             }
         }
         else {

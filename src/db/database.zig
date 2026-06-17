@@ -6,11 +6,10 @@ pub const DBError = error{
     CannotInitalize,
     CannotStoreData,
     NoKeyFound,
+    NullIndexWithNonInferedDB,
 };
 
 pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
-    // TODO: Try to allow the index value 'I' to be either a u8 slice or 
-    //      an actual type to try to get ride of the InferedDatbase type.
     return struct{
         pub const DataType = D;
         pub const ReferenceType = R;
@@ -21,10 +20,21 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
             }
             const i_info = @typeInfo(i_type);
             if (i_info == .pointer and i_info.pointer.size == .slice and i_info.pointer.child == u8) {
-                const inferred_type = @FieldType(D, I);
-                break :blk inferred_type;
+                if(!@hasField(DataType, I)){
+                    @compileError("Keys must be a field in the data type \'D\'");
+                }
+                // const inferred_type = @FieldType(D, I);
+                break :blk @FieldType(D, I);
             }
             @compileError("The index type must be a type or a string of a field in the data type");
+        };
+        const Infered: bool = blk:{
+            const i_type = @TypeOf(I);
+            const i_info = @typeInfo(i_type);
+            if (i_info == .pointer and i_info.pointer.size == .slice and i_info.pointer.child == u8) {
+                break :blk true;
+            }
+            break :blk false;
         };
         const StorageEngineType = StorageEngine.StorageEngine(D, R);
         const IndexerType = Indexer.Indexer(IndexType, R);
@@ -42,13 +52,18 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
             };
         }
 
-        pub fn StoreData(db: *Self, opts: struct{index: ?IndexType = null, data: DataType}) anyerror!void {
+        pub fn StoreData(db: *Self, opts: struct{index: ?IndexType = null, data: DataType}) !void {
             //TODO: get a optional index parameter working i.e if index is null use the field from D
-            const ref = try db.storage_engine.StoreData(data);
+            const ref = try db.storage_engine.StoreData(opts.data);
+            const index: IndexType = blk: {
+                if(Self.Infered){
+                    break :blk @field(opts.data, I);
+                }else if(opts.index) |ind| {
+                    break :blk ind;
+                }
+                return DBError.NullIndexWithNonInferedDB;
+            };
             try db.indexer.Index(index, ref);
-        }
-
-        pub fn StoreDataInfer(db: *Self, data: D) anyerror!void{
         }
 
         pub fn GetEntriesByIndex(db: *Self, index: IndexType) ![]const D {

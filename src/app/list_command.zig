@@ -15,9 +15,11 @@ fn grabIndexFromStr(
         index_str: []const u8,
         comptime Key: []const u8,
         convertStr: *const fn([]const u8) ?@FieldType(Record, Key)
-    ) ?@FieldType(Record, Key) {
+        ) ?@FieldType(Record, Key) {
     return convertStr(index_str);
 }
+
+const LIST_COMMAND_NAME = "LIST";
 
 // LIST INDEX
 pub fn handleList(
@@ -28,25 +30,25 @@ pub fn handleList(
         convertStr: *const fn([]const u8) ?@FieldType(Record, Key),
         db: *Databases.Database.Database(D, R, Key),
         diags: ?*Diagnostic
-    ) ![]const D{
+        ) ![]const D{
     var next_arg: u64 = 1;
     const min_num_args = 2;
     const subcommand = try parsed.getNthArg(next_arg);
     next_arg += 1;
     //------------ Checking Sub command -------------------
-    if(!std.mem.eql(u8, subcommand.name, "ADD")){
+    if(!std.mem.eql(u8, subcommand.name, LIST_COMMAND_NAME)){
         return returnError(
-            CLIError.UnknownCommand, "Cannot handle subcommands other than \"LIST\"\n", .{}, diags
+            CLIError.UnknownCommand, "Cannot handle subcommands other than \"" ++ LIST_COMMAND_NAME ++ "\"\n", .{}, diags
         );
     } // Check subsubcommand
     if (parsed.num_arguments < min_num_args){ // check arguments
         return returnError(CLIError.NotEnoughArguments, "Not enough arguments, expected {d} got {d}\n", .{min_num_args, parsed.num_arguments}, diags);
     }
     //------------ Getting Index -------------------
-    const index_str = try parsed.getNthArg(next_arg);
-    if(grabIndexFromStr(index_str, Key, convertStr)) |conv_index| {
+    const index_str = (try parsed.getNthArg(next_arg)).name;
+    if(grabIndexFromStr(index_str[0..index_str.len-1], Key, convertStr)) |conv_index| {
        return try db.GetEntriesByIndex(conv_index);
     }
-    return returnError(TermCommands.CLIError.InvalidArgument, "Could not convert the index correctly", .{}, diags);
+    return returnError(TermCommands.CLIError.InvalidArgument, "Could not convert the index \"{s}\" correctly\n", .{index_str}, diags);
 }
 

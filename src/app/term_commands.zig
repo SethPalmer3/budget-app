@@ -73,32 +73,32 @@ pub const Record = struct {
     amount: u64, // <-- fixed point number div by 10
     desc: [desc_length]u8,
 
-    pub fn display(self: *Self, w: *std.Io.Writer) void {
+    pub fn display(self: *const Self, w: *std.Io.Writer) void {
         const type_info = @typeInfo(Self);
         const type_fields = type_info.@"struct".fields;
-        for(type_fields) |field| {
-            w.print("{s}: ", .{field.name});
+        inline for(type_fields) |field| {
+            w.print("{s}: ", .{field.name}) catch {};
             switch (field.type) {
-                recordType => w.print("{s}", .{@tagName(@field(self, field.name))}),
-                recordCategory => w.print("{s}", .{@tagName(@field(self, field.name))}),
-                u8,u16,u32,u64 => w.print("{d}", .{@field(self, field.name)}),
+                recordType => w.print("{s}", .{@tagName(@field(self, field.name))}) catch {},
+                recordCategory => w.print("{s}", .{@tagName(@field(self, field.name))}) catch {},
+                u8,u16,u32,u64 => w.print("{d}", .{@field(self, field.name)}) catch {},
                 Date => {
                     const d: Date = @field(self, field.name);
-                    w.print("{d}/{d}/{d}", .{d.day, d.month, d.year});
+                    w.print("{d}/{d}/{d}", .{d.day, d.month, d.year}) catch {};
                 },
                 else => {
                     const str = @field(self, field.name);
-                    w.print("{s}", .{str});
+                    w.print("{s}", .{str}) catch {};
                 }
             }
-            w.print("\n", .{});
+            w.print("\n", .{}) catch {};
         }
     }
-
 };
 
 pub fn returnError(err: anyerror, comptime fmt: []const u8, args: anytype, diag: ?*Diagnostic) anyerror {
     if(diag) |d| {
+        d.msg_size = std.fmt.count(fmt, args);
         _ = std.fmt.bufPrint(&d.msg, fmt, args) catch {};
     }
     return err;

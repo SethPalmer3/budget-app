@@ -42,9 +42,11 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     //------------ Getting Record Date -------------------
     const item_date_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    item.date = Date.convertStr(item_date_str.name) catch |err| {
-        return returnError(err, "Could not parse the date correctly\n", .{}, diags);
-    };
+    if(Date.convertStr(item_date_str.name)) |date| {
+        item.date = date;
+    }else{
+        return returnError(CLIError.InvalidArgument, "Could not parse the date correctly\n", .{}, diags);
+    }
     //------------ Getting Record Name -------------------
     const name_arg = try parsed.getNthArg(next_arg);
     next_arg += 1;
