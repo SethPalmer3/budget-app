@@ -27,10 +27,29 @@ pub fn linearStorageEngine(comptime DataType: type) type {
         /// to be readily able to put data in.
         pub fn init(alloc: Allocator, options: Options) !Self {
             // std.debug.print("Clearing file: {s}\n", .{options.heap_file_location});
-            const heap_file = try path_utils.create_file_abs_or_cwd(options.io, options.heap_file_location, .{ .read = true });
-            const buff: []u8 = try alloc.alloc(u8, 1024);
+            const buff: []u8 = try alloc.alloc(u8, options.buff_size);
+            const heap_file = try path_utils.create_file_abs_or_cwd(options.io, options.heap_file_location, .{ .read = true, .truncate = false });
+            const heap_file_stat = try heap_file.stat(options.io);
+            var EOF_pos: u64 = @sizeOf(Reference);
+            if(heap_file_stat.size > 0){
+                // std.debug.print("Recovering from file\n", .{});
+                var heap_file_reader = heap_file.reader(options.io, buff);
+                var generic_reader = &heap_file_reader.interface;
 
-            return .{ .allocator = alloc, .options = options, .buffer = buff, .heap_file = heap_file };
+                try heap_file_reader.seekTo(0);
+
+                const num_entries_bytes = try generic_reader.readAlloc(alloc, @sizeOf(u64));
+                defer alloc.free(num_entries_bytes);
+                EOF_pos = std.mem.bytesToValue(u64, num_entries_bytes);
+            }
+
+            return .{ 
+                .allocator = alloc,
+                .options = options,
+                .buffer = buff,
+                .heap_file = heap_file,
+                .heap_EOF_pso = EOF_pos
+            };
         }
 
         pub fn deinit(lse: *Self) void {
@@ -42,13 +61,19 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             const lse: *Self = @ptrCast(@alignCast(ptr));
             const io = lse.options.io;
             const heap_file = lse.heap_file;
+
             var heap_file_writer = heap_file.writer(io, lse.buffer);
             var generic_writer = &heap_file_writer.interface;
+
             try heap_file_writer.seekTo(lse.heap_EOF_pso);
             const stored_ref = lse.heap_EOF_pso;
-            _ = try generic_writer.write(&std.mem.toBytes(data));
+
+            const written_size = try generic_writer.write(&std.mem.toBytes(data));
+            lse.heap_EOF_pso += written_size;
+            try heap_file_writer.seekTo(0);
+            _ = try generic_writer.write(&std.mem.toBytes(lse.heap_EOF_pso));
             try heap_file_writer.flush();
-            lse.heap_EOF_pso += @sizeOf(DataType);
+
             return stored_ref;
         }
 
@@ -61,7 +86,16 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var generic_reader = &heap_file_reader.interface;
 
             // std.debug.print("{d} > {d}\n", .{ ref, lse.heap_EOF_pso });
-            if ((ref % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso) {
+            if (
+                ((ref-@sizeOf(Reference)) % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso
+                ) {
+                // if (ref >= lse.heap_EOF_pso) {
+                //     std.debug.print("ref is past the EOF position {d}\n", .{lse.heap_EOF_pso});
+                // }
+                // else if (((ref-@sizeOf(Reference)) % @sizeOf(DataType)) != 0) {
+                //     std.debug.print("ref is not aligned properly\n", .{});
+                // }
+                // std.debug.print("Got an invalid reference value {d}\n", .{ref});
                 return storageEngine.SEError.InvalidReference;
             }
             try heap_file_reader.seekTo(ref);
@@ -102,7 +136,7 @@ test "store 1 item" {
 
     const heap_file = try path_utils.open_file_abs_or_cwd(io, heap_file_location, .{});
     const heap_file_stat = try heap_file.stat(io);
-    try std.testing.expect(heap_file_stat.size == @sizeOf(u64));
+    try std.testing.expect(heap_file_stat.size == @sizeOf(u64) + @sizeOf(u64));
 }
 
 test "retrieve with invalid reference" {
@@ -115,7 +149,7 @@ test "retrieve with invalid reference" {
     var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
     defer lse.deinit();
     _ = try linearStorageEngine(u64).store(&lse, 0xaaaa);
-    const retrieve_data = linearStorageEngine(u64).retrieve(&lse, @sizeOf(u64));
+    const retrieve_data = linearStorageEngine(u64).retrieve(&lse, 2*@sizeOf(u64));
 
     try std.testing.expectError(storageEngine.SEError.InvalidReference, retrieve_data);
 }
@@ -133,7 +167,7 @@ test "store 2 item" {
 
     const heap_file = try path_utils.open_file_abs_or_cwd(io, heap_file_location, .{});
     const heap_file_stat = try heap_file.stat(io);
-    try std.testing.expect(heap_file_stat.size == 2 * @sizeOf(u64));
+    try std.testing.expect(heap_file_stat.size == 3 * @sizeOf(u64)); // EOF pos plus two entries
 }
 
 test "retrieve 1 item" {
@@ -182,4 +216,28 @@ test "usage of interface" {
     const retrieved_item = try generic_storage_engine.RetrieveData(ref);
 
     try std.testing.expect(std.meta.eql(retrieved_item, 0xaaaa));
+}
+
+test "restore from file" {
+    // std.testing.refAllDecls(@This());
+    const io = std.testing.io;
+    const heap_file_location = "testing/heap.db";
+    const stored_data: u64 = 0xaaaa;
+
+    path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    const first_item = try linearStorageEngine(u64).store(&lse, stored_data);
+
+    lse.deinit();
+
+    var lse_reload = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    defer lse_reload.deinit();
+    // std.debug.print("EOF position: {d}\n", .{lse_reload.heap_EOF_pso});
+    try std.testing.expect(lse_reload.heap_EOF_pso == 2*@sizeOf(u64));
+    // const first_item = try linearStorageEngine(u64).store(&lse, stored_data);
+
+    const retrieved_item = try linearStorageEngine(u64).retrieve(&lse_reload, first_item);
+
+    try std.testing.expect(std.meta.eql(retrieved_item, stored_data));
 }

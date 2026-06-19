@@ -111,7 +111,7 @@ test "StoreData" {
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
 
-    try db.StoreData(1, .{.data = 1001, .index = 1});
+    try db.StoreData(.{.data = .{.data = 1001, .index = 1}});
     const heap_file = try open_file_abs_or_cwd(io, heap_file_path, .{});
     const index_file = try open_file_abs_or_cwd(io, index_file_path, .{});
 
@@ -143,7 +143,7 @@ test "GetDataByIndex one record" {
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
 
-    try db.StoreData(1, .{.data = 1001, .index = 1});
+    try db.StoreData(.{.data = .{.data = 1001, .index = 1}});
 
     const retrieved_data = try db.GetEntriesByIndex(1);
     defer std.testing.allocator.free(retrieved_data);
@@ -173,7 +173,7 @@ test "GetDataByIndex multiple record" {
     var db = linDB.database(std.testing.allocator);
 
     for(0..10) |i| {
-        try db.StoreData(index, .{.data = data + i, .index = index});
+        try db.StoreData(.{.data = .{.data = data + i, .index = index}});
     }
 
     const retrieved_data = try db.GetEntriesByIndex(1);

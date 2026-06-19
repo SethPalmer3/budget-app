@@ -17,6 +17,7 @@ const Record = TerminalCommands.Record;
 const datalocation = "data/heap.db";
 const AddSubCommand = "ADD";
 const ListSubCommand = "LIST";
+const QuitSubCommand = "QUIT";
 
 // const budget_app = @import("budget_app");
 
@@ -45,8 +46,10 @@ pub fn main(init: std.process.Init) !void {
         _ = try gen_writer.writeByte('>');
         try stdout_writer.flush();
         const input = try gen_reader.takeDelimiterInclusive('\n');
-        std.debug.print("Received input \'{s}\'\n", .{input});
-        var cmd = try Parser.parse(input, gpa);
+        const trimmed_input = std.mem.trim(u8, input, " \t\n\r");
+        std.debug.print("Received input \'{s}\'\n", .{trimmed_input});
+        var cmd = try Parser.parse(trimmed_input, gpa);
+        defer cmd.deinit(gpa);
         const subcommand = try cmd.getNthArg(1);
         var diags: Diagnostics = undefined;
         if (std.mem.eql(u8, subcommand.name, AddSubCommand)) {
@@ -73,9 +76,11 @@ pub fn main(init: std.process.Init) !void {
                 gen_writer.print("\n", .{}) catch {};
             }
         }
+        else if(std.mem.eql(u8, subcommand.name, QuitSubCommand)){
+            break;
+        }
         else {
             _ = try gen_writer.write("Not a known command\n");
         }
-        cmd.deinit(gpa);
     }
 }
