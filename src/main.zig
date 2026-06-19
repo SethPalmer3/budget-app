@@ -43,7 +43,7 @@ pub fn main(init: std.process.Init) !void {
 
     while (true) {
         // try stdout_writer.flush();
-        _ = try gen_writer.writeByte('>');
+        try gen_writer.writeAll("> ");
         try stdout_writer.flush();
         const input = try gen_reader.takeDelimiterInclusive('\n');
         const trimmed_input = std.mem.trim(u8, input, " \t\n\r");
@@ -51,32 +51,40 @@ pub fn main(init: std.process.Init) !void {
         var cmd = try Parser.parse(trimmed_input, gpa);
         defer cmd.deinit(gpa);
         const subcommand = try cmd.getNthArg(1);
+        const normalized_subcommand_name = try gpa.alloc(u8, subcommand.name.len);
+        defer gpa.free(normalized_subcommand_name);
+        _ = std.ascii.upperString(normalized_subcommand_name, subcommand.name);
         var diags: Diagnostics = undefined;
-        if (std.mem.eql(u8, subcommand.name, AddSubCommand)) {
-            std.debug.print("Parsing add command {s}\n", .{subcommand.name});
-            const item = TerminalCommands.AddCommand.handleAdd(&cmd, &diags) catch {
-                _ = try gen_writer.print("Error - {s}\n", .{diags.msg[0..diags.msg_size]});
+        if (std.mem.eql(u8, normalized_subcommand_name, AddSubCommand)) {
+            std.debug.print("Parsing add command {s}\n", .{normalized_subcommand_name});
+            const item = TerminalCommands.AddCommand.handleAdd(&cmd, &diags) catch |err| {
+                try gen_writer.print(
+                    "Error({s}) - {s}\n", .{@errorName(err), diags.msg[0..diags.msg_size]}
+                );
                 // try stdout_writer.flush();
-                cmd.deinit(gpa);
+                // cmd.deinit(gpa);
                continue;
             };
             try database.StoreData(.{.data = item});
         }
-        else if(std.mem.eql(u8, subcommand.name, ListSubCommand)){
-            std.debug.print("Parsing list command {s}\n", .{subcommand.name});
+        else if(std.mem.eql(u8, normalized_subcommand_name, ListSubCommand)){
+            std.debug.print("Parsing list command {s}\n", .{normalized_subcommand_name});
             const items = TerminalCommands.ListCommand.handleList(
                 Record, u64, "date", &cmd, Date.convertStr, &database, &diags
-            ) catch {
-                _ = try gen_writer.print("Error - {s}\n", .{diags.msg[0..diags.msg_size]});
-                cmd.deinit(gpa);
+            ) catch |err| {
+                try gen_writer.print(
+                    "Error({s}) - {s}\n", .{@errorName(err), diags.msg[0..diags.msg_size]}
+                );
+                // cmd.deinit(gpa);
                 continue;
             };
             for(items) |item| {
                 item.display(gen_writer);
                 gen_writer.print("\n", .{}) catch {};
             }
+            gpa.free(items);
         }
-        else if(std.mem.eql(u8, subcommand.name, QuitSubCommand)){
+        else if(std.mem.eql(u8, normalized_subcommand_name, QuitSubCommand)){
             break;
         }
         else {

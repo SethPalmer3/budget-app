@@ -10,7 +10,7 @@ const Diagnostic = @import("diagnostics.zig");
 const Date = @import("dates.zig");
 const CommandParse = @import("CommandParse");
 
-// NEW TYPE DAY/MONTH/YEAR NAME CATEGORY AMOUNT DESC -> ID
+// ADD TYPE DAY/MONTH/YEAR NAME CATEGORY AMOUNT DESC -> ID
 pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     var next_arg: u64 = 1;
     const min_num_args = num_args: {
@@ -18,16 +18,10 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
         const rec_fields = rec_info.@"struct".fields;
         break :num_args rec_fields.len;
     };
-    const subcommand = try parsed.getNthArg(next_arg);
+    _ = try parsed.getNthArg(next_arg);
     next_arg += 1;
     var item: Record = undefined;
     //------------ Checking Sub command -------------------
-    if(!std.mem.eql(u8, subcommand.name, "ADD")){
-        return returnError(
-            CLIError.UnknownCommand, "Cannot handle subcommands other than \"ADD\"\n", .{}, diags
-        );
-    } // Check subsubcommand
-
     if (parsed.num_arguments < min_num_args){ // check arguments
         return returnError(CLIError.NotEnoughArguments, "Too many arguments passed to the sub command, expected {d}\n", .{min_num_args}, diags);
     }
@@ -50,10 +44,11 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
     //------------ Getting Record Name -------------------
     const name_arg = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    if (name_arg.name.len > Record.name_length){
-        return returnError(CLIError.InvalidArgument, "Length of the name of the record is too large, must be at most {d} characters\n", .{Record.name_length}, diags);
+    if (name_arg.name.len > Record.max_name_length){
+        return returnError(CLIError.InvalidArgument, "Length of the name of the record is too large, must be at most {d} characters\n", .{Record.max_name_length}, diags);
     }
     std.mem.copyForwards(u8, &item.name, name_arg.name);
+    item.name_size = name_arg.name.len;
     //------------ Getting Record Category -------------------
     const item_category_str = try parsed.getNthArg(next_arg);
     next_arg += 1;
@@ -76,6 +71,7 @@ pub fn handleAdd(parsed: *CommandParse.Command, diags: ?*Diagnostic) !Record{
         item.desc[next_desc_position+arg.name.len] = ' '; // Include space
         next_desc_position += arg.name.len + 1;
     }else |_|{} // Discard error
+    item.desc_size = next_desc_position;
 
     return item;
 }

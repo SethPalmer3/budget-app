@@ -33,28 +33,19 @@ pub fn handleList(
         ) ![]const D{
     var next_arg: u64 = 1;
     const min_num_args = 2;
-    const subcommand = try parsed.getNthArg(next_arg);
+    _ = try parsed.getNthArg(next_arg);
     next_arg += 1;
-    //------------ Checking Sub command -------------------
-    if(!std.mem.eql(u8, subcommand.name, LIST_COMMAND_NAME)){
-        return returnError(
-            CLIError.UnknownCommand,
-            "Cannot handle subcommands other than \"" ++ LIST_COMMAND_NAME ++ "\"",
-            .{},
-            diags
-        );
-    } // Check subsubcommand
     if (parsed.num_arguments < min_num_args){ // check arguments
         return returnError(
             CLIError.NotEnoughArguments,
-            "Not enough arguments,expected {d} got {d}",
+            "Not enough arguments, expected {d} got {d}",
             .{min_num_args, parsed.num_arguments},
             diags
         );
     }
     //------------ Getting Index -------------------
     const index_str = (try parsed.getNthArg(next_arg)).name;
-    if(grabIndexFromStr(index_str[0..index_str.len-1], Key, convertStr)) |conv_index| {
+    if(grabIndexFromStr(index_str, Key, convertStr)) |conv_index| {
        return db.GetEntriesByIndex(conv_index) catch |err| {
            return returnError(
                err,
