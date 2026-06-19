@@ -25,6 +25,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/db/root.zig"),
         .target = target,
     });
+    const domain = b.addModule("Domain", .{
+        .root_source_file = b.path("src/domain/root.zig"),
+        .target = target,
+    });
 
     const linear_scan = b.addModule("LinearScan", .{
         .root_source_file = b.path("src/linear_scan/root.zig"),
@@ -39,12 +43,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+
     const main_app = b.addModule("App", .{
         .root_source_file = b.path("src/app/root.zig"),
         .target = target,
         .imports = &.{
             .{.name = "CommandParse", .module = cmd_ui},
             .{.name = "Database", .module = database},
+            .{.name = "Domain", .module = domain},
             // .{.name = "LinearScan", .module = linear_scan},
         },
     });
@@ -93,6 +99,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "Database", .module = database },
                 .{ .name = "LinearScan", .module = linear_scan },
                 .{ .name = "CommandParse", .module = cmd_ui },
+                .{ .name = "Domain", .module = domain },
                 .{ .name = "App", .module = main_app },
             },
         }),
@@ -145,11 +152,16 @@ pub fn build(b: *std.Build) void {
     const app_test = b.addTest(.{
         .root_module = main_app,
     });
+    const domain_test = b.addTest(.{
+        .root_module =  domain,
+    });
 
     // A run step that will run the test executable.
     const run_db_test = b.addRunArtifact(db_test);
     const run_linear_scan_test = b.addRunArtifact(linear_scan_test);
     const run_cmd_ui_test = b.addRunArtifact(cmd_ui_test);
+    const run_domain_test = b.addRunArtifact(domain_test);
+    const run_app_test = b.addRunArtifact(app_test);
     const run_main_app_test = b.addRunArtifact(app_test);
 
     // Creates an executable that will run `test` blocks from the executable's
@@ -170,6 +182,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_linear_scan_test.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_cmd_ui_test.step);
+    test_step.dependOn(&run_domain_test.step);
+    test_step.dependOn(&run_app_test.step);
     test_step.dependOn(&run_main_app_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.

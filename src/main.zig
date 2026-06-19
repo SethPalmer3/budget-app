@@ -3,18 +3,19 @@ const Io = std.Io;
 const CommandParse = @import("CommandParse");
 const LinearScan = @import("LinearScan");
 const Databases = @import("Database");
+const Domain = @import("Domain");
 const App = @import("App");
 
 const Parser = CommandParse.Parser;
 
-const Date = App.Dates;
+const Date = Domain.Date;
 const TerminalCommands = App.TermCommands;
 
-const Diagnostics = TerminalCommands.Diagnostic;
 const CLIErrors = TerminalCommands.CLIError;
-const Record = TerminalCommands.Record;
+const Record = Domain.Record;
 
-const datalocation = "data/heap.db";
+const heap_location = "data/heap.db";
+const index_location = "data/index.ind";
 const AddSubCommand = "ADD";
 const ListSubCommand = "LIST";
 const QuitSubCommand = "QUIT";
@@ -29,8 +30,8 @@ pub fn main(init: std.process.Init) !void {
     defer gpa.free(in_buff);
     defer gpa.free(out_buff);
 
-    var linear_db = try LinearScan.LinearScanDB.LinearStorageDB(TerminalCommands.Record, "date")
-        .init(gpa, .{.heap_file = "data/heap.db", .index_file = "data/index.ind", .io = init.io});
+    var linear_db = try LinearScan.LinearScanDB.LinearStorageDB(Record, "date")
+        .init(gpa, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
     defer linear_db.deinit(gpa);
     var database = linear_db.database(gpa);
 
@@ -54,12 +55,11 @@ pub fn main(init: std.process.Init) !void {
         const normalized_subcommand_name = try gpa.alloc(u8, subcommand.name.len);
         defer gpa.free(normalized_subcommand_name);
         _ = std.ascii.upperString(normalized_subcommand_name, subcommand.name);
-        var diags: Diagnostics = undefined;
         if (std.mem.eql(u8, normalized_subcommand_name, AddSubCommand)) {
             std.debug.print("Parsing add command {s}\n", .{normalized_subcommand_name});
-            const item = TerminalCommands.AddCommand.handleAdd(&cmd, &diags) catch |err| {
+            const item = TerminalCommands.AddCommand.handleAdd(&cmd, gen_writer) catch |err| {
                 try gen_writer.print(
-                    "Error({s}) - {s}\n", .{@errorName(err), diags.msg[0..diags.msg_size]}
+                    "Error {s}\n", .{@errorName(err)}
                 );
                 // try stdout_writer.flush();
                 // cmd.deinit(gpa);
@@ -70,10 +70,10 @@ pub fn main(init: std.process.Init) !void {
         else if(std.mem.eql(u8, normalized_subcommand_name, ListSubCommand)){
             std.debug.print("Parsing list command {s}\n", .{normalized_subcommand_name});
             const items = TerminalCommands.ListCommand.handleList(
-                Record, u64, "date", &cmd, Date.convertStr, &database, &diags
+                Record, u64, "date", &cmd, Date.convertStr, &database, gen_writer
             ) catch |err| {
                 try gen_writer.print(
-                    "Error({s}) - {s}\n", .{@errorName(err), diags.msg[0..diags.msg_size]}
+                    "Error {s}\n", .{@errorName(err)}
                 );
                 // cmd.deinit(gpa);
                 continue;
