@@ -36,17 +36,18 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
             }
         }
         const IndexType = @FieldType(RecorcType, Key);
+        pub const ReferenceType = u64;
 
         options: Options,
         buff: []u8,
-        lin_indexer: LinearIndexer.LinearIndexer(IndexType, u64),
+        lin_indexer: LinearIndexer.LinearIndexer(IndexType, Self.ReferenceType),
         lin_se: LinearStorageEngine.linearStorageEngine(RecorcType),
         /// Initalize the generic type and allocate the buffer
         pub fn init(gpa: std.mem.Allocator, options: Options) !Self {
             // const io = options.io;
             return .{
                 .buff = try gpa.alloc(u8, options.buffer_size),
-                .lin_indexer = try LinearIndexer.LinearIndexer(IndexType, u64).init(gpa, .{
+                .lin_indexer = try LinearIndexer.LinearIndexer(IndexType, Self.ReferenceType).init(gpa, .{
                     .index_file = options.index_file,
                     .io = options.io,
                     .buffer_size = options.buffer_size,
@@ -77,13 +78,13 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
             return try lse.lin_indexer.indexer().LookUpData(gpa, index, lse.lin_se);
         }
 
-        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, u64, Key) {
-            return Database.Database(RecorcType, u64, Key).init(
+        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, Self.ReferenceType, Key) {
+            return Database.Database(RecorcType, Self.ReferenceType, Key).init(
                 gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
             );
         }
-        pub fn infere_database(lse: *Self, gpa: std.mem.Allocator) Database.InferedDatbase(RecorcType, u64, Key) {
-            return Database.InferedDatbase(RecorcType, u64, Key).init(
+        pub fn infere_database(lse: *Self, gpa: std.mem.Allocator) Database.InferedDatbase(RecorcType, Self.ReferenceType, Key) {
+            return Database.InferedDatbase(RecorcType, Self.ReferenceType, Key).init(
                 gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
             );
         }

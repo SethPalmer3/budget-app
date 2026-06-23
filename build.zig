@@ -44,8 +44,8 @@ pub fn build(b: *std.Build) void {
     });
 
 
-    const main_app = b.addModule("App", .{
-        .root_source_file = b.path("src/app/root.zig"),
+    const terminal_app = b.addModule("TermApp", .{
+        .root_source_file = b.path("src/terminal_app/root.zig"),
         .target = target,
         .imports = &.{
             .{.name = "CommandParse", .module = cmd_ui},
@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "LinearScan", .module = linear_scan },
                 .{ .name = "CommandParse", .module = cmd_ui },
                 .{ .name = "Domain", .module = domain },
-                .{ .name = "App", .module = main_app },
+                .{ .name = "TermApp", .module = terminal_app },
             },
         }),
     });
@@ -150,7 +150,7 @@ pub fn build(b: *std.Build) void {
         .root_module = cmd_ui,
     });
     const app_test = b.addTest(.{
-        .root_module = main_app,
+        .root_module = terminal_app,
     });
     const domain_test = b.addTest(.{
         .root_module =  domain,
@@ -161,8 +161,8 @@ pub fn build(b: *std.Build) void {
     const run_linear_scan_test = b.addRunArtifact(linear_scan_test);
     const run_cmd_ui_test = b.addRunArtifact(cmd_ui_test);
     const run_domain_test = b.addRunArtifact(domain_test);
-    const run_app_test = b.addRunArtifact(app_test);
-    const run_main_app_test = b.addRunArtifact(app_test);
+    const run_terminal_app_test = b.addRunArtifact(app_test);
+    // const run_main_app_test = b.addRunArtifact(app_test);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
@@ -183,8 +183,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_cmd_ui_test.step);
     test_step.dependOn(&run_domain_test.step);
-    test_step.dependOn(&run_app_test.step);
-    test_step.dependOn(&run_main_app_test.step);
+    test_step.dependOn(&run_terminal_app_test.step);
+    // test_step.dependOn(&run_main_app_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

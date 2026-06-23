@@ -19,14 +19,23 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
                 break :blk I;
             }
             const i_info = @typeInfo(i_type);
-            if (i_info == .pointer and i_info.pointer.size == .slice and i_info.pointer.child == u8) {
-                if(!@hasField(DataType, I)){
+            if(i_info != .pointer){
+                @compileError(
+                    "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
+            }
+            const child_info = @typeInfo(i_info.pointer.child);
+            if((i_info.pointer.size == .one and child_info == .array) or 
+                (i_info.pointer.size == .slice and i_info.pointer.child == u8)
+            ){
+                const converted_str: []const u8 = I;
+                if(!@hasField(DataType, converted_str)){
                     @compileError("Keys must be a field in the data type \'D\'");
                 }
                 // const inferred_type = @FieldType(D, I);
-                break :blk @FieldType(D, I);
+                break :blk @FieldType(D, converted_str);
             }
-            @compileError("The index type must be a type or a string of a field in the data type");
+            @compileError(
+                "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
         };
         const Infered: bool = blk:{
             const i_type = @TypeOf(I);
@@ -53,7 +62,6 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
         }
 
         pub fn StoreData(db: *Self, opts: struct{index: ?IndexType = null, data: DataType}) !void {
-            //TODO: get a optional index parameter working i.e if index is null use the field from D
             const ref = try db.storage_engine.StoreData(opts.data);
             const index: IndexType = blk: {
                 if(Self.Infered){

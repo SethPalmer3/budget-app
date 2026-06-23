@@ -4,7 +4,7 @@ const CommandParse = @import("CommandParse");
 const LinearScan = @import("LinearScan");
 const Databases = @import("Database");
 const Domain = @import("Domain");
-const App = @import("App");
+const App = @import("TermApp");
 
 const Parser = CommandParse.Parser;
 
@@ -16,12 +16,15 @@ const Record = Domain.Record;
 
 const heap_location = "data/heap.db";
 const index_location = "data/index.ind";
+const MainKey: []const u8 = "date";
 const AddSubCommand = "ADD";
 const ListSubCommand = "LIST";
 const QuitSubCommand = "QUIT";
 
 // const budget_app = @import("budget_app");
 
+// TODO: Implement a way to interact with databases through the command handler
+// TODO: Make a more generic structure for the front end and back end
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
@@ -30,7 +33,8 @@ pub fn main(init: std.process.Init) !void {
     defer gpa.free(in_buff);
     defer gpa.free(out_buff);
 
-    var linear_db = try LinearScan.LinearScanDB.LinearStorageDB(Record, "date")
+    const lin_db_type = LinearScan.LinearScanDB.LinearStorageDB(Record, MainKey);
+    var linear_db = try lin_db_type
         .init(gpa, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
     defer linear_db.deinit(gpa);
     var database = linear_db.database(gpa);
@@ -38,57 +42,35 @@ pub fn main(init: std.process.Init) !void {
     const stdin = std.Io.File.stdin();
     const stdout = std.Io.File.stdout();
     var stdin_reader = stdin.reader(init.io, in_buff);
-    var gen_reader = &stdin_reader.interface;
+    const gen_reader = &stdin_reader.interface;
     var stdout_writer = stdout.writer(init.io, out_buff);
-    var gen_writer = &stdout_writer.interface;
+    const gen_writer = &stdout_writer.interface;
+    var list_context = 
+        TerminalCommands.ListCommand.contextPackage(Record, lin_db_type.ReferenceType, MainKey){
+            .convertStr = Date.convertStr,
+            .db = &database,
+            .displayData = Record.display,
+        };
+    var cmdManager = App.TerminalManager.init(&.{
+        .{
+            .name = AddSubCommand,
+            .execute_fn =
+                TerminalCommands.AddCommand.generateHandleAdd(Record, lin_db_type.ReferenceType, MainKey),
+            .execute_context = &database,
+        },
+        .{
+            .name = ListSubCommand,
+            .execute_fn = 
+                TerminalCommands.ListCommand.generateHandleList(Record, lin_db_type.ReferenceType, MainKey),
+            .execute_context =
+                &list_context,
+        },
+        .{
+            .name = QuitSubCommand,
+            .execute_fn = TerminalCommands.QuitCommand.handleQuit,
+            .execute_context = &.{},
+        },
+    });
 
-    while (true) {
-        // try stdout_writer.flush();
-        try gen_writer.writeAll("> ");
-        try stdout_writer.flush();
-        const input = try gen_reader.takeDelimiterInclusive('\n');
-        const trimmed_input = std.mem.trim(u8, input, " \t\n\r");
-        std.debug.print("Received input \'{s}\'\n", .{trimmed_input});
-        var cmd = try Parser.parse(trimmed_input, gpa);
-        defer cmd.deinit(gpa);
-        const subcommand = try cmd.getNthArg(1);
-        const normalized_subcommand_name = try gpa.alloc(u8, subcommand.name.len);
-        defer gpa.free(normalized_subcommand_name);
-        _ = std.ascii.upperString(normalized_subcommand_name, subcommand.name);
-        if (std.mem.eql(u8, normalized_subcommand_name, AddSubCommand)) {
-            std.debug.print("Parsing add command {s}\n", .{normalized_subcommand_name});
-            const item = TerminalCommands.AddCommand.handleAdd(&cmd, gen_writer) catch |err| {
-                try gen_writer.print(
-                    "Error {s}\n", .{@errorName(err)}
-                );
-                // try stdout_writer.flush();
-                // cmd.deinit(gpa);
-               continue;
-            };
-            try database.StoreData(.{.data = item});
-        }
-        else if(std.mem.eql(u8, normalized_subcommand_name, ListSubCommand)){
-            std.debug.print("Parsing list command {s}\n", .{normalized_subcommand_name});
-            const items = TerminalCommands.ListCommand.handleList(
-                Record, u64, "date", &cmd, Date.convertStr, &database, gen_writer
-            ) catch |err| {
-                try gen_writer.print(
-                    "Error {s}\n", .{@errorName(err)}
-                );
-                // cmd.deinit(gpa);
-                continue;
-            };
-            for(items) |item| {
-                item.display(gen_writer);
-                gen_writer.print("\n", .{}) catch {};
-            }
-            gpa.free(items);
-        }
-        else if(std.mem.eql(u8, normalized_subcommand_name, QuitSubCommand)){
-            break;
-        }
-        else {
-            _ = try gen_writer.write("Not a known command\n");
-        }
-    }
+    while (cmdManager.executeWithInput(gpa, gen_reader, gen_writer)) {}
 }

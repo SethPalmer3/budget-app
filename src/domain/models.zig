@@ -75,11 +75,11 @@ pub const Record = struct {
                     if (field_info == .array) {
                         display_length = field_info.array.len;
                         const str = @as([field_info.array.len]u8, unknown_field);
-                        std.debug.print("accessing field: {s}\n", .{field.name ++ "_size"});
+                        // std.debug.print("accessing field: {s}\n", .{field.name ++ "_size"});
                         if(@hasField(Self, field.name ++ "_size")){
                             display_length = @as(usize, @field(self, field.name ++ "_size"));
                         }
-                        std.debug.print("display_length: {d}\n", .{display_length});
+                        // std.debug.print("display_length: {d}\n", .{display_length});
                         w.print("{s}", .{str[0..display_length]}) catch {};
                     }
                     else {
