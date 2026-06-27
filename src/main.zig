@@ -20,11 +20,8 @@ const MainKey: []const u8 = "date";
 const AddSubCommand = "ADD";
 const ListSubCommand = "LIST";
 const QuitSubCommand = "QUIT";
+const DisplayCMDParserSubCommand = "DISPLAY";
 
-// const budget_app = @import("budget_app");
-
-// TODO: Implement a way to interact with databases through the command handler
-// TODO: Make a more generic structure for the front end and back end
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
@@ -51,7 +48,8 @@ pub fn main(init: std.process.Init) !void {
             .db = &database,
             .displayData = Record.display,
         };
-    var cmdManager = App.TerminalManager.init(&.{
+
+    var cmdManager = App.TerminalManager.init(&.{ // CLI commands
         .{
             .name = AddSubCommand,
             .execute_fn =
@@ -70,7 +68,15 @@ pub fn main(init: std.process.Init) !void {
             .execute_fn = TerminalCommands.QuitCommand.handleQuit,
             .execute_context = &.{},
         },
+        .{
+            .name = DisplayCMDParserSubCommand,
+            .execute_fn = TerminalCommands.DebugCommands.displayCommandParser,
+            .execute_context = &.{},
+        },
+        // TODO: Add a command to show relavent information about the stored data(i.e. totals, expected - actual, e.t.c)
+        //      └> specific data included using arguments
     });
+    // defer cmdManager.deinit(gpa);
 
-    while (cmdManager.executeWithInput(gpa, gen_reader, gen_writer)) {}
+    while (cmdManager.executeWithInput(gpa, gen_reader, gen_writer)) {} // main loop
 }

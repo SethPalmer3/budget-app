@@ -17,6 +17,9 @@ pub fn parse(input: []const u8, alloc: Allocator) !Command {
     var i: u64 = 0;
     var opt_pos: usize = 0; // To differentiate Arguments and Options
     while (it.next()) |segment| {
+        if(segment.len == 0){
+            continue;
+        }
         opt_pos = 0; 
         while (segment[opt_pos] == '-') {
             opt_pos += 1;
@@ -49,6 +52,15 @@ test parse {
     try std.testing.expectEqualSlices(u8, cmd.fragments[0].Arg.name, "CMD");
     try std.testing.expectEqualSlices(u8, cmd.fragments[1].Opt.long_form, "f");
     try std.testing.expectEqualSlices(u8, cmd.fragments[2].Arg.name, "a");
+    try std.testing.expectEqual(3, cmd.size);
+}
+
+test "one arg" {
+    var cmd = try Self.parse("CMD", std.testing.allocator);
+    defer cmd.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, cmd.fragments[0].Arg.name, "CMD");
+    try std.testing.expectEqual(1, cmd.size);
+
 }
 
 test "first segment option" {

@@ -35,6 +35,37 @@ pub fn generateHandleAdd(
             };
             var db: *Database.Database.Database(DataType, RefType, IndexKey) = @alignCast(@ptrCast(context));
 
+            //------------ Checking Help Flag -------------------
+            if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
+                if(parsed.getNthArgAfterOption(.{.long_form = "help", .short_form = 't'}, 1)) |opt_arg| {
+                    std.debug.print("Found arg after help option {s}\n", .{opt_arg.name});
+                    if(std.mem.eql(u8, opt_arg.name, "TYPE")){
+                        const recType_info = @typeInfo(recordType);
+                        const recType_fields = recType_info.@"enum".fields;
+                        inline for (recType_fields) |field| {
+                            write_out.print("{s}", .{field.name})catch{};
+                        }
+                    }
+                    else if(std.mem.eql(u8, opt_arg.name, "CATEGORY")){
+                        const recType_info = @typeInfo(recordCategory);
+                        const recType_fields = recType_info.@"enum".fields;
+                        inline for (recType_fields) |field| {
+                            write_out.print("{s}", .{field.name})catch{};
+                        }
+                    }
+                }else |_|{
+                    write_out.print("ADD TYPE DAY/MONTH/YEAR NAME CATEGORY AMOUNT DESC\n", .{})catch{};
+                }
+                return cmdManager.CommandState.Continue;
+            }else |err|{
+                switch (err) {
+                    CommandParse.Command.CommandError.CannotFindFragment => {
+                        write_out.print("Unknown Option given\n", .{})catch{};
+                    },
+                    else => {}
+                }
+            }
+
             _ = parsed.getNthArg(next_arg)catch{return cmdManager.CommandState.ErrorContinue;};
             next_arg += 1;
             var item: DataType = undefined;

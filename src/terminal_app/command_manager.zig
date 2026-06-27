@@ -42,7 +42,7 @@ pub fn executeWithInput(
     out_writer.flush()catch{};
     const input = in_read.takeDelimiterInclusive('\n')catch{return false;};
     const trimmed_input = std.mem.trim(u8, input, " \t\n\r");
-    std.debug.print("Received input \'{s}\'\n", .{trimmed_input});
+    // std.debug.print("Received input \'{s}\'\n", .{trimmed_input});
     var cmd = CommandParse.Parser.parse(trimmed_input, gpa)catch{return false;};
     defer cmd.deinit(gpa);
     const subcommand = cmd.getNthArg(1)catch{return true;};
@@ -51,7 +51,7 @@ pub fn executeWithInput(
     defer gpa.free(normalized_subcommand_name);
     _ = std.ascii.upperString(normalized_subcommand_name, subcommand.name);
 
-    for(self.command_entries) |*entry| {
+    for(self.command_entries) |*entry| { // TODO: replace with a comptime string map
         if(!std.mem.eql(u8, entry.name, normalized_subcommand_name)){
             continue;
         }
@@ -60,6 +60,6 @@ pub fn executeWithInput(
             else => return true,
         }
     }
-    out_writer.print("No matching command found", .{}) catch {};
+    out_writer.print("No matching command found\n", .{}) catch {};
     return true;
 }

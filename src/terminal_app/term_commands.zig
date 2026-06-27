@@ -4,6 +4,7 @@ const Database = @import("Database");
 pub const AddCommand = @import("add_command.zig");
 pub const ListCommand = @import("list_command.zig");
 pub const QuitCommand = @import("quit_command.zig");
+pub const DebugCommands = @import("debug_commands.zig");
 
 // const name_length = 20;
 // const desc_length = 1000;
