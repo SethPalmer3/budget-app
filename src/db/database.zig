@@ -90,8 +90,15 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
             try db.indexer.Index(index, ref);
         }
 
-        pub fn GetEntriesByIndex(db: *Self, index: IndexType) ![]const D {
-            const refs = try db.indexer.LookUpData(db.alloc, index);
+        pub fn GetEntriesByIndex(
+            db: *Self, indexes: struct{start_index: IndexType, end_index: ?IndexType = null}
+        ) ![]const D {
+            var refs: []const R = undefined;
+            if (indexes.end_index) |end_index| {
+                refs = try db.indexer.LookupRange(db.alloc, indexes.start_index, end_index);
+            }else{
+                refs = try db.indexer.LookUpData(db.alloc, indexes.start_index);
+            }
             defer db.alloc.free(refs);
             const retrieved_data = try db.alloc.alloc(D, refs.len);
             for (refs, 0..) |ref, i| {

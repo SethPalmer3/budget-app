@@ -6,13 +6,19 @@ pub const IndexerError = error{
 };
 
 /// Generic indexing type used for databases
-pub fn Indexer(comptime IndexType: type, ReferenceType: type) type {
+pub fn Indexer(
+    comptime IndexType: type,
+    comptime ReferenceType: type
+) type {
     return struct {
         const Self = @This();
+        pub const compFn = fn (IndexType, std.math.CompareOperator, IndexType) bool; 
 
         pub const Vtable = struct {
             index: *const fn (*anyopaque, IndexType, ReferenceType) anyerror!void,
-            lookup: *const fn (*anyopaque, std.mem.Allocator, IndexType) anyerror![]const ReferenceType,
+            lookup: *const fn (
+                *anyopaque, std.mem.Allocator, IndexType, ?IndexType
+            ) anyerror![]const ReferenceType,
             delete: *const fn (*anyopaque, IndexType) anyerror!void,
         };
 
@@ -25,8 +31,16 @@ pub fn Indexer(comptime IndexType: type, ReferenceType: type) type {
             return try i.vtable.index(i.ptr, index, ref);
         }
 
-        pub fn LookUpData(i: *Self, allocator: std.mem.Allocator, index_value: IndexType) ![]const ReferenceType {
-            return try i.vtable.lookup(i.ptr, allocator, index_value);
+        pub fn LookUpData(
+            i: *Self, allocator: std.mem.Allocator, index_value: IndexType
+        ) ![]const ReferenceType {
+            return try i.vtable.lookup(i.ptr, allocator, index_value, null);
+        }
+
+        pub fn LookupRange(
+            i: *Self, allocator: std.mem.Allocator, start_index: IndexType, end_index: IndexType
+        ) ![]const ReferenceType {
+            return try i.vtable.lookup(i.ptr, allocator, start_index, end_index);
         }
 
         pub fn DeleteData(i: *Self, index_value: IndexType) !void {

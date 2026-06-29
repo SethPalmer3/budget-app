@@ -13,47 +13,9 @@ const recordType = Domain.RecordType;
 const recordCategory = Domain.RecordCategory;
 const Date = Domain.Date;
 
+pub const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
 
 const LIST_COMMAND_NAME = "LIST";
-
-fn fetchConvertStrFn(
-    comptime returnType: type,
-    comptime index_type: type,
-    comptime conversion_fn_name: []const u8
-) *const fn ([]const u8) returnType{
-    const index_info = @typeInfo(index_type);
-    switch (index_info) {
-        .int => {
-            return struct{
-                pub fn conv(str: []const u8) ?index_type {
-                    return std.fmt.parseInt(index_type, str, 10);
-                }
-            }.conv;
-        },
-        .float => {
-            return struct{
-                pub fn conv(str: []const u8) ?index_type {
-                    return std.fmt.parseFloat(index_type, str, 10);
-                }
-            }.conv;
-        },
-        .@"struct", .@"enum", .@"union" => {
-            if(!@hasDecl(index_type, conversion_fn_name)){
-                @compileError("Container that is used as the index type must specify a function(" ++ conversion_fn_name ++ ") which can convert string like data to that container type");
-            }
-            const conv_fn = &@field(index_type, conversion_fn_name);
-            const conv_fn_type = @TypeOf(conv_fn);
-            const comp_expr = *const fn([]const u8) returnType;
-            if(conv_fn_type != comp_expr){
-                @compileError("The containers specified conversion function must have the signature " ++ @typeName(comp_expr) ++ ", found " ++ @typeName(conv_fn_type));
-            }
-            return conv_fn;
-        },
-        else => { // Must have a conversion_fn_name function to do the conversion
-            @compileError("The index type must be a type that has a way to convert string like data into it's type or the container must have a function(" ++ conversion_fn_name ++ ") which can do that.");
-        }
-    }
-}
 
 pub fn contextPackage(
     comptime DataType: type,
@@ -62,7 +24,7 @@ pub fn contextPackage(
 ) type {
     return struct {
         db: *Database.Database.Database(DataType, RefType, IndexKey),
-        convertStr: *const fn([]const u8) ?@FieldType(DataType, IndexKey),
+        // convertStr: *const fn([]const u8) ?@FieldType(DataType, IndexKey),
         displayData: *const fn(*const DataType, *std.Io.Writer) void,
     };
 }
@@ -88,7 +50,7 @@ pub fn generateHandleList(
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
                 const index_string: []const u8 =
                     @typeName(index_key_type);
-                writer.print("LIST INDEX({s})\n", .{index_string})catch{};
+                writer.print("LIST INDEX [END INDEX]({s})\n", .{index_string})catch{};
                 return cmdManager.CommandState.Continue;
             }else |err|{
                 switch (err) {
@@ -103,19 +65,69 @@ pub fn generateHandleList(
             next_arg += 1;
             if (parsed.num_arguments < min_num_args){ // check arguments
                 writer.print(
-                    "Not enough arguments, expected {d} got {d}\n",
+                    "Not enough arguments, expected at least {d} got {d}\n",
                     .{min_num_args, parsed.num_arguments},
                 ) catch {};
             return cmdManager.CommandState.ErrorContinue;
             }
-            //------------ Getting Index -------------------
+            const convertStr: *const fn([]const u8) ?index_key_type = 
+                fetchConvertStrFn(?index_key_type, index_key_type, "convertStr");
+            //------------ Determine if range or single value ----------------
+            if(parsed.num_arguments > 2){ // Selected range
+            //------------ Getting Range ----------------
+                const start_index_str = 
+                    (parsed.getNthArg(next_arg) catch {return cmdManager.CommandState.ErrorContinue;}).name;
+                next_arg += 1;
+                const end_index_str = 
+                    (parsed.getNthArg(next_arg) catch {return cmdManager.CommandState.ErrorContinue;}).name;
+                next_arg += 1;
+
+                const start_index = 
+                    Database.Database.convertStringToIndexValue(
+                        DataType, IndexKey, start_index_str, convertStr
+                    ) orelse {
+                    writer.print(
+                        "Could not convert the index \"{s}\" correctly\n",
+                        .{start_index_str},
+                    ) catch {};
+                    return cmdManager.CommandState.ErrorContinue;
+                }; 
+                const end_index = 
+                    Database.Database.convertStringToIndexValue(
+                        DataType, IndexKey, end_index_str, convertStr
+                    ) orelse {
+                    writer.print(
+                        "Could not convert the index \"{s}\" correctly\n",
+                        .{end_index_str},
+                    ) catch {};
+                    return cmdManager.CommandState.ErrorContinue;
+                };
+
+                const items = db.GetEntriesByIndex(
+                    .{.start_index = start_index, .end_index = end_index}
+                ) catch |err| {
+                    writer.print(
+                        "({s})Could not get entries with the indexes {s} and {s}\n",
+                        .{@errorName(err),start_index_str, end_index_str},
+                    ) catch {};
+                    return cmdManager.CommandState.ErrorContinue;
+                };
+                defer db.alloc.free(items);
+
+                writer.print("-----------------------\n", .{}) catch {};
+                for(items) |*item| {
+                    cntxt.displayData(item, writer);
+                    writer.print("-----------------------\n", .{}) catch {};
+                }
+                return cmdManager.CommandState.Continue;
+            }
+
+            //------------ Getting Single Index -------------------
             const index_str = 
                 (parsed.getNthArg(next_arg) catch {return cmdManager.CommandState.ErrorContinue;}).name;
 
-            const convertStr: *const fn([]const u8) ?index_key_type = 
-                fetchConvertStrFn(?index_key_type, index_key_type, "convertStr");
             if(Database.Database.convertStringToIndexValue(DataType, IndexKey, index_str, convertStr)) |conv_index| {
-                const items = db.GetEntriesByIndex(conv_index) catch {
+                const items = db.GetEntriesByIndex(.{.start_index = conv_index}) catch {
                     writer.print(
                         "Could not get entries with that index {s}\n",
                         .{index_str},

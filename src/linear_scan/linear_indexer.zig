@@ -15,7 +15,10 @@ pub const Options = struct {
     buffer_size: usize = 1024,
 };
 
-pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) type {
+pub fn LinearIndexer(
+    comptime IndexType: type,
+    comptime ReferenceType: type
+) type {
     return struct {
         const Self = @This();
         pub const IndexRefType = struct {
@@ -30,8 +33,13 @@ pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) typ
         buffer: []u8,
         index_file_EOF_pos: u64 = 0,
         index_file: std.Io.File,
+        compFn: *const Databases.Indexer.Indexer(IndexType, ReferenceType).compFn,
 
-        pub fn init(allocator: Allocator, options: Options) !Self {
+        pub fn init(
+            allocator: Allocator,
+            compFn: *const Databases.Indexer.Indexer(IndexType, ReferenceType).compFn,
+            options: Options
+        ) !Self {
             const index_file = try path_utils.create_file_abs_or_cwd(options.io, options.index_file, .{.read = true, .truncate = false});
             const index_file_stat = try index_file.stat(options.io);
             const EOF_pos: u64 = index_file_stat.size;
@@ -59,6 +67,7 @@ pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) typ
                 .buffer = buff,
                 .index_file = index_file,
                 .index_file_EOF_pos = EOF_pos,
+                .compFn = compFn,
             };
         }
 
@@ -68,11 +77,18 @@ pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) typ
             ind.index_file.close(ind.options.io);
         }
 
-        fn countEntriesWithIndex(ind: *Self, index_value: IndexType) u64 {
+        fn countEntriesWithIndex(ind: *Self, index_value: IndexType, end_index_value: ?IndexType) u64 {
             var num_match: u64 = 0;
             for(ind.entries)|entry|{
-                if(std.meta.eql(entry.index_value, index_value)){
-                    num_match += 1;
+                if(end_index_value) |end_index| {
+                    if(ind.compFn(index_value, .lte, entry.index_value) and 
+                        ind.compFn(end_index, .gte, entry.index_value)){
+                        num_match += 1;
+                    }
+                }else{
+                    if(ind.compFn(index_value, .eq, entry.index_value)){
+                        num_match += 1;
+                    }
                 }
             }
             return num_match;
@@ -100,22 +116,33 @@ pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) typ
             try index_file_writer.flush();
         }
 
-        pub fn lookup(ptr: *anyopaque, alloc: std.mem.Allocator, index_value: IndexType) ![]const ReferenceType{
+        pub fn lookup(
+            ptr: *anyopaque, alloc: std.mem.Allocator, index_value: IndexType, end_index_value: ?IndexType
+        ) ![]const ReferenceType{
             const indxr: *Self = @ptrCast(@alignCast(ptr));
-            const num_instances: u64 = indxr.countEntriesWithIndex(index_value);
+            const num_instances: u64 = indxr.countEntriesWithIndex(index_value, end_index_value);
             if (num_instances == 0) {
                 return Indexer.IndexerError.CouldNotFindIndex;
             }
             var entries = try alloc.alloc(ReferenceType, num_instances);
             var currenty_entry_index: usize = 0;
             for (indxr.entries) |entry| {
-                if (std.meta.eql(entry.index_value, index_value)) {
-                    entries[currenty_entry_index] = entry.reference_value;
-                    currenty_entry_index += 1;
+                if(end_index_value) |end_index| {
+                    if(indxr.compFn(index_value, .lte, entry.index_value) and 
+                        indxr.compFn(end_index, .gte, entry.index_value)){
+                        entries[currenty_entry_index] = entry.reference_value;
+                        currenty_entry_index += 1;
+                    }
+                }else{
+                    if(indxr.compFn(index_value, .eq, entry.index_value)){
+                        entries[currenty_entry_index] = entry.reference_value;
+                        currenty_entry_index += 1;
+                    }
                 }
             }
             return entries;
         }
+
 
         pub fn delete(ptr: *anyopaque, index_value: IndexType) !void {
             const indxr: *Self = @ptrCast(@alignCast(ptr));
@@ -149,6 +176,10 @@ pub fn LinearIndexer(comptime IndexType: type, comptime ReferenceType: type) typ
     };
 }
 
+fn compare(a: u64, op: std.math.CompareOperator, b: u64) bool {
+    return std.math.compare(a, op, b);
+}
+
 test "index file updated" {
 
     const index_file_location = "testing/index.ind";
@@ -157,7 +188,7 @@ test "index file updated" {
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
 
@@ -178,14 +209,40 @@ test "retrieve one reference" {
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
     try linIndexType.index(&indexer, index, ref);
-    const retrieve_ref = try linIndexType.lookup(&indexer, std.testing.allocator, index);
+    const retrieve_ref = try linIndexType.lookup(&indexer, std.testing.allocator, index, null);
     defer std.testing.allocator.free(retrieve_ref);
 
     try std.testing.expect(std.meta.eql(retrieve_ref[0], ref));
+}
+
+test "range retrieve" {
+    const ref: u64 = 1001;
+    const index: u64 = 200;
+    const max_offset = 10;
+
+    const index_file_location = "testing/index.ind";
+
+    path_utils.delete_file_abs_or_cwd(std.testing.io, index_file_location) catch {};
+
+    const linIndexType = LinearIndexer(u64, u64);
+
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
+    defer indexer.deinit();
+
+    for(0..max_offset) |i| {
+        try linIndexType.index(&indexer, index + i, ref + i);
+    }
+    const retrieve_ref = try linIndexType.lookup(&indexer, std.testing.allocator, index, index+(max_offset/2));
+    defer std.testing.allocator.free(retrieve_ref);
+
+    try std.testing.expectEqual((max_offset/2)+1, retrieve_ref.len);
+    for(retrieve_ref, 0..) |reff, i| {
+        try std.testing.expect(std.meta.eql(reff, ref + i));
+    }
 }
 
 test "retrieve multiple ref"{
@@ -199,12 +256,12 @@ test "retrieve multiple ref"{
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
     try linIndexType.index(&indexer, index, ref);
     try linIndexType.index(&indexer, index, ref2);
-    const retrieve_ref = try linIndexType.lookup(&indexer, std.testing.allocator, index);
+    const retrieve_ref = try linIndexType.lookup(&indexer, std.testing.allocator, index, null);
     defer std.testing.allocator.free(retrieve_ref);
 
     try std.testing.expect(std.meta.eql(retrieve_ref[0], ref));
@@ -221,12 +278,12 @@ test "retrieve non-existant index" {
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
 
     try linIndexType.index(&indexer, index, ref);
-    const bad_lookup = linIndexType.lookup(&indexer, std.testing.allocator, index + 1);
+    const bad_lookup = linIndexType.lookup(&indexer, std.testing.allocator, index + 1, null);
 
     try std.testing.expectError(Indexer.IndexerError.CouldNotFindIndex, bad_lookup);
 }
@@ -241,7 +298,7 @@ test "delete entry" {
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
 
@@ -263,7 +320,7 @@ test "delete entry with multiple entries" {
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
 
@@ -290,7 +347,7 @@ test "get generic indexer" {
 
     const linIndexType = LinearIndexer(u64, u64);
 
-    var indexer = try linIndexType.init(std.testing.allocator, .{ .io = std.testing.io, .index_file = index_file_location });
+    var indexer = try linIndexType.init(std.testing.allocator, compare, .{ .io = std.testing.io, .index_file = index_file_location });
     defer indexer.deinit();
 
     var generic_indexer = indexer.indexer();
@@ -313,18 +370,18 @@ test "restore from file" {
 
     const ind_type = LinearIndexer(@TypeOf(index), @TypeOf(ref));
 
-    var ind = try ind_type.init(std.testing.allocator, .{ .io = io, .index_file = index_file_location });
+    var ind = try ind_type.init(std.testing.allocator, compare, .{ .io = io, .index_file = index_file_location });
     try ind_type.index(&ind, index, ref);
 
     ind.deinit();
 
-    var ind_reload = try ind_type.init(std.testing.allocator, .{ .io = io, .index_file = index_file_location});
+    var ind_reload = try ind_type.init(std.testing.allocator, compare, .{ .io = io, .index_file = index_file_location});
     defer ind_reload.deinit();
     // std.debug.print("EOF position: {d}\n", .{lse_reload.heap_EOF_pso});
     try std.testing.expectEqual(ind_reload.index_file_EOF_pos, @sizeOf(ind_type.IndexRefType));
     // const first_item = try linearStorageEngine(u64).store(&lse, stored_data);
 
-    const retrieved_item = try ind_type.lookup(&ind_reload, std.testing.allocator, index);
+    const retrieved_item = try ind_type.lookup(&ind_reload, std.testing.allocator, index, null);
     defer std.testing.allocator.free(retrieved_item);
 
     try std.testing.expect(retrieved_item[0] == ref);

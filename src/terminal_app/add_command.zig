@@ -38,7 +38,6 @@ pub fn generateHandleAdd(
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
                 if(parsed.getNthArgAfterOption(.{.long_form = "help", .short_form = 't'}, 1)) |opt_arg| {
-                    std.debug.print("Found arg after help option {s}\n", .{opt_arg.name});
                     if(std.mem.eql(u8, opt_arg.name, "TYPE")){
                         const recType_info = @typeInfo(recordType);
                         const recType_fields = recType_info.@"enum".fields;

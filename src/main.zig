@@ -32,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
 
     const lin_db_type = LinearScan.LinearScanDB.LinearStorageDB(Record, MainKey);
     var linear_db = try lin_db_type
-        .init(gpa, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
+        .init(gpa, Date.compFn, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
     defer linear_db.deinit(gpa);
     var database = linear_db.database(gpa);
 
@@ -44,9 +44,9 @@ pub fn main(init: std.process.Init) !void {
     const gen_writer = &stdout_writer.interface;
     var list_context = 
         TerminalCommands.ListCommand.contextPackage(Record, lin_db_type.ReferenceType, MainKey){
-            .convertStr = Date.convertStr,
+            // .convertStr = Date.convertStr,
             .db = &database,
-            .displayData = Record.display,
+            .displayData = Record.prettyPrint,
         };
 
     var cmdManager = App.TerminalManager.init(&.{ // CLI commands
@@ -75,6 +75,9 @@ pub fn main(init: std.process.Init) !void {
         },
         // TODO: Add a command to show relavent information about the stored data(i.e. totals, expected - actual, e.t.c)
         //      └> specific data included using arguments
+        // {
+        //
+        // },
     });
     // defer cmdManager.deinit(gpa);
 

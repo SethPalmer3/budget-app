@@ -54,6 +54,15 @@ pub const Record = struct {
     desc_size: u64,
     desc: [max_desc_length]u8,
 
+    pub fn prettyPrint(self: *const Self, w: *std.Io.Writer) void {
+        w.print("Name: {s} ({s} {s})\n",
+            .{self.name[0..self.name_size], @tagName(self.type), @tagName(self.category)}
+        ) catch {};
+        w.print("Date: {d}/{d}/{d}\n", .{self.date.day, self.date.month, self.date.year}) catch {};
+        w.print("Amount: {d}.{d:0<2}\n", .{self.amount / 100, @rem(self.amount, 100)}) catch {};
+        w.print("Description: {s}\n", .{self.desc[0..self.desc_size]}) catch {};
+    }
+
     pub fn display(self: *const Self, w: *std.Io.Writer) void {
         const type_info = @typeInfo(Self);
         const type_fields = type_info.@"struct".fields;

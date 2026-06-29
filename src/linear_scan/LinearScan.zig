@@ -37,17 +37,19 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
         }
         const IndexType = @FieldType(RecorcType, Key);
         pub const ReferenceType = u64;
+        const compFn = Databases.Indexer.Indexer(Self.IndexType, Self.ReferenceType).compFn;
 
         options: Options,
         buff: []u8,
-        lin_indexer: LinearIndexer.LinearIndexer(IndexType, Self.ReferenceType),
+        lin_indexer: LinearIndexer.LinearIndexer(Self.IndexType, Self.ReferenceType),
         lin_se: LinearStorageEngine.linearStorageEngine(RecorcType),
         /// Initalize the generic type and allocate the buffer
-        pub fn init(gpa: std.mem.Allocator, options: Options) !Self {
+        pub fn init(gpa: std.mem.Allocator, cmpFn: *const Self.compFn, options: Options) !Self {
             // const io = options.io;
             return .{
                 .buff = try gpa.alloc(u8, options.buffer_size),
-                .lin_indexer = try LinearIndexer.LinearIndexer(IndexType, Self.ReferenceType).init(gpa, .{
+                .lin_indexer = try LinearIndexer.LinearIndexer(IndexType, Self.ReferenceType)
+                    .init(gpa, cmpFn, .{
                     .index_file = options.index_file,
                     .io = options.io,
                     .buffer_size = options.buffer_size,
@@ -91,6 +93,9 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
     };
 }
 
+fn compare(a: u64, op: std.math.CompareOperator, b: u64) bool {
+    return std.math.compare(a, op, b);
+}
 
 test "StoreData" {
     const io = std.testing.io;
@@ -106,7 +111,7 @@ test "StoreData" {
     delete_file_abs_or_cwd(std.testing.io, index_file_path) catch {};
     delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
 
-    var linDB = try LinearStorageDB(RecordType, "index").init(gpa,
+    var linDB = try LinearStorageDB(RecordType, "index").init(gpa, compare,
         .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
     );
     defer linDB.deinit(gpa);
@@ -138,7 +143,7 @@ test "GetDataByIndex one record" {
     delete_file_abs_or_cwd(std.testing.io, index_file_path) catch {};
     delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
 
-    var linDB = try LinearStorageDB(Record, "index").init(gpa,
+    var linDB = try LinearStorageDB(Record, "index").init(gpa, compare,
         .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
     );
     defer linDB.deinit(gpa);
@@ -146,7 +151,7 @@ test "GetDataByIndex one record" {
 
     try db.StoreData(.{.data = .{.data = 1001, .index = 1}});
 
-    const retrieved_data = try db.GetEntriesByIndex(1);
+    const retrieved_data = try db.GetEntriesByIndex(.{.start_index = 1});
     defer std.testing.allocator.free(retrieved_data);
     try std.testing.expectEqual(Record{.index = 1, .data = 1001}, retrieved_data[0]);
 }
@@ -167,7 +172,7 @@ test "GetDataByIndex multiple record" {
     delete_file_abs_or_cwd(std.testing.io, index_file_path) catch {};
     delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
 
-    var linDB = try LinearStorageDB(Record, "index").init(gpa,
+    var linDB = try LinearStorageDB(Record, "index").init(gpa, compare,
         .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
     );
     defer linDB.deinit(gpa);
@@ -177,7 +182,7 @@ test "GetDataByIndex multiple record" {
         try db.StoreData(.{.data = .{.data = data + i, .index = index}});
     }
 
-    const retrieved_data = try db.GetEntriesByIndex(1);
+    const retrieved_data = try db.GetEntriesByIndex(.{.start_index = 1});
     defer std.testing.allocator.free(retrieved_data);
     try std.testing.expect(retrieved_data.len == 10);
     for(retrieved_data, 0..) |ret_datum, i| {
