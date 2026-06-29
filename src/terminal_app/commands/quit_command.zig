@@ -1,6 +1,6 @@
 const std = @import("std");
-const TermCommands = @import("term_commands.zig");
-const cmdManager = @import("command_manager.zig");
+const TermCommands = @import("../term_commands.zig");
+const cmdManager = @import("../command_manager.zig");
 
 const CommandParse = @import("CommandParse");
 

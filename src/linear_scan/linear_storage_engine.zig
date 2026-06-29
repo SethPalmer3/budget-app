@@ -85,17 +85,9 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var heap_file_reader = heap_file.reader(io, lse.buffer);
             var generic_reader = &heap_file_reader.interface;
 
-            // std.debug.print("{d} > {d}\n", .{ ref, lse.heap_EOF_pso });
             if (
                 ((ref-@sizeOf(Reference)) % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso
                 ) {
-                // if (ref >= lse.heap_EOF_pso) {
-                //     std.debug.print("ref is past the EOF position {d}\n", .{lse.heap_EOF_pso});
-                // }
-                // else if (((ref-@sizeOf(Reference)) % @sizeOf(DataType)) != 0) {
-                //     std.debug.print("ref is not aligned properly\n", .{});
-                // }
-                // std.debug.print("Got an invalid reference value {d}\n", .{ref});
                 return storageEngine.SEError.InvalidReference;
             }
             try heap_file_reader.seekTo(ref);

@@ -39,10 +39,9 @@ pub fn build(b: *std.Build) void {
     });
 
     const cmd_ui = b.addModule("CommandParse", .{
-        .root_source_file = b.path("src/cmdlineif/root.zig"),
+        .root_source_file = b.path("src/terminal_app/command_parsing/root.zig"),
         .target = target,
     });
-
 
     const terminal_app = b.addModule("TermApp", .{
         .root_source_file = b.path("src/terminal_app/root.zig"),

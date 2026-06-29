@@ -1,10 +1,10 @@
 const std = @import("std");
 const CommandParse = @import("CommandParse");
 const Database = @import("Database");
-pub const AddCommand = @import("add_command.zig");
-pub const ListCommand = @import("list_command.zig");
-pub const QuitCommand = @import("quit_command.zig");
-pub const DebugCommands = @import("debug_commands.zig");
+pub const AddCommand = @import("commands/add_command.zig");
+pub const ListCommand = @import("commands/list_command.zig");
+pub const QuitCommand = @import("commands/quit_command.zig");
+pub const DebugCommands = @import("commands/debug_commands.zig");
 
 // const name_length = 20;
 // const desc_length = 1000;
