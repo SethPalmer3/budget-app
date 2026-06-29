@@ -120,6 +120,11 @@ pub fn LinearIndexer(
             ptr: *anyopaque, alloc: std.mem.Allocator, index_value: IndexType, end_index_value: ?IndexType
         ) ![]const ReferenceType{
             const indxr: *Self = @ptrCast(@alignCast(ptr));
+            if (end_index_value) |end_index| {
+                if(!indxr.compFn(index_value, .lt, end_index)){
+                    return Indexer.IndexerError.RangeIndexesOutOfOrder;
+                }
+            }
             const num_instances: u64 = indxr.countEntriesWithIndex(index_value, end_index_value);
             if (num_instances == 0) {
                 return Indexer.IndexerError.CouldNotFindIndex;

@@ -3,6 +3,7 @@ const storage_engine = @import("./storage_engine.zig");
 
 pub const IndexerError = error{
     CouldNotFindIndex,
+    RangeIndexesOutOfOrder,
 };
 
 /// Generic indexing type used for databases
