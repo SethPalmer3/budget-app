@@ -6,6 +6,25 @@ pub const SEError = error{
     DataDeleted,
 };
 
+fn determineCompareFn(comptime T: type, a: T, b: T, size: ?usize) bool {
+    var t_info = @typeInfo(T);
+    if(t_info == .pointer) { // Handle array like types
+        switch (t_info.pointer.size) {
+            .slice => return std.mem.eql(t_info.pointer.child, a, b),
+            .many => {
+                const aSlice = a[0..size];
+                const bSlice = b[0..size];
+                return std.mem.eql(t_info.pointer.child, aSlice, bSlice);
+            },
+            .c, .one => {
+                return std.meta.eql(a.*, b.*); // Following the pointer
+            }
+        }
+    }
+
+    return std.meta.eql(a, b); // Catch everything else
+}
+
 /// Generic storage engine type to store a predetermined data type
 /// and will return a kind of value that represents a kind of
 /// reference to that data to be retrieved quickly again
@@ -80,8 +99,21 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
             return try se.vtable.delete(se.ptr, ref);
         }
 
-        pub fn Query(se: *Self, query: QueryType) ![]const DataType{
-
+        pub fn Query(se: *Self, gpa: std.mem.Allocator, query: QueryType) ![]const DataType{
+            var arr = std.ArrayList(DataType).empty;
+            loop: for(se.vtable.valid_references(se)) |reference| {
+                const data = try se.vtable.retrieve(se, reference);
+                const query_info = @typeInfo(QueryType);
+                inline for(query_info.@"struct".fields) |field| {
+                    if(@field(query, field.name)) |field_value| { // Non-null value
+                        if (!determineCompareFn(@TypeOf(field_value), field_value, @field(data, field.name))) {
+                            continue :loop; // Skipping as some field doesn't match
+                        }
+                    }
+                }
+                arr.append(gpa,data);
+            }
+            return arr.items;
         }
     };
 }

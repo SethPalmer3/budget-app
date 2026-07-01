@@ -37,7 +37,6 @@ pub fn generateHandleList(
     comptime conversion_fn_name: []const u8,
 )*const fn(*CommandParse.Command, *std.Io.Reader, *std.Io.Writer, *anyopaque) cmdManager.CommandState{
     return struct{
-
         fn collectItemsFromParser(parsed: *CommandParse.Command, next_argument: u64, db: *DBType(DataType, RefType, IndexKey), writer: *std.Io.Writer) ![]const DataType {
             var next_arg = next_argument;
             const index_key_type = Database.Database.convertIndexKeyIntoType(DataType, IndexKey);
@@ -104,9 +103,7 @@ pub fn generateHandleList(
             const index_key_type = Database.Database.convertIndexKeyIntoType(DataType, IndexKey);
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
-                const index_string: []const u8 =
-                    @typeName(index_key_type);
-                writer.print("LIST [--field FILED NAME] INDEX [END INDEX]({s})\n", .{index_string})catch{};
+                writer.print("LIST [--field FILED NAME]\n", .{})catch{};
                 return cmdManager.CommandState.Continue;
             }else |err|{
                 switch (err) {
