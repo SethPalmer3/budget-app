@@ -59,7 +59,9 @@ pub fn main(init: std.process.Init) !void {
         .{
             .name = ListSubCommand,
             .execute_fn = 
-                TerminalCommands.ListCommand.generateHandleList(Record, lin_db_type.ReferenceType, MainKey),
+                TerminalCommands.ListCommand.generateHandleList(
+                    Record, lin_db_type.ReferenceType, MainKey, "convertStr"
+                ),
             .execute_context =
                 &list_context,
         },
