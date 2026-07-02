@@ -35,8 +35,8 @@ pub fn parse(input: []const u8, alloc: Allocator) !Command {
                 return ParseError.FirstSegmentNotArg;
             }
             try cmd.addOption(.{
-                .long_form = segment[opt_pos ..],
-                .short_form = segment[opt_pos],
+                .long_form = segment[opt_pos ..], // Removes '-' prefix
+                .short_form = segment[opt_pos], // Removes '-' prefix
             }, alloc);
         } else {
             try cmd.addArgument(.{ .name = segment }, alloc);

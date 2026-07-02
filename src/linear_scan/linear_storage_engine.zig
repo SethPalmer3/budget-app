@@ -9,6 +9,7 @@ pub const Options = struct {
     io: std.Io,
     heap_file_location: []const u8,
     buff_size: usize = 1024,
+    ref_buff_size: usize = 1024,
 };
 
 pub fn linearStorageEngine(comptime DataType: type) type {
@@ -19,6 +20,8 @@ pub fn linearStorageEngine(comptime DataType: type) type {
         allocator: Allocator,
         options: Options,
         buffer: []u8,
+        valid_refs_size: u64,
+        valid_refs: []Reference,
         heap_EOF_pso: Reference = 0,
         heap_file: std.Io.File,
 
@@ -28,6 +31,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
         pub fn init(alloc: Allocator, options: Options) !Self {
             // std.debug.print("Clearing file: {s}\n", .{options.heap_file_location});
             const buff: []u8 = try alloc.alloc(u8, options.buff_size);
+            const valid_refs: []u64 = try alloc.alloc(u64, options.ref_buff_size);
             const heap_file = try path_utils.create_file_abs_or_cwd(options.io, options.heap_file_location, .{ .read = true, .truncate = false });
             const heap_file_stat = try heap_file.stat(options.io);
             var EOF_pos: u64 = @sizeOf(Reference);
@@ -47,6 +51,8 @@ pub fn linearStorageEngine(comptime DataType: type) type {
                 .allocator = alloc,
                 .options = options,
                 .buffer = buff,
+                .valid_refs_size = EOF_pos / @sizeOf(DataType),
+                .valid_refs = valid_refs,
                 .heap_file = heap_file,
                 .heap_EOF_pso = EOF_pos
             };
@@ -54,6 +60,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
 
         pub fn deinit(lse: *Self) void {
             lse.allocator.free(lse.buffer);
+            lse.allocator.free(lse.valid_refs);
             lse.heap_file.close(lse.options.io);
         }
 
@@ -73,6 +80,10 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             try heap_file_writer.seekTo(0);
             _ = try generic_writer.write(&std.mem.toBytes(lse.heap_EOF_pso));
             try heap_file_writer.flush();
+            if (lse.valid_refs_size + 1 > lse.valid_refs.len) {
+                lse.valid_refs = try lse.allocator.realloc(lse.valid_refs, lse.valid_refs.len*2);
+            }
+            lse.valid_refs_size += 1;
 
             return stored_ref;
         }
@@ -98,6 +109,11 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             return std.mem.bytesToValue(DataType, data);
         }
 
+        pub fn valid_references(ptr: *anyopaque) []const DataType{
+            const lse: *Self = @ptrCast(@alignCast(ptr));
+            return lse.valid_refs[0..lse.valid_refs_size];
+        }
+
         /// Does not actually delete anything
         pub fn delete(ptr: *anyopaque, ref: Reference) !void {
             _ = ptr;
@@ -109,6 +125,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             return .{ .ptr = lse, .vtable = &.{
                 .store = store,
                 .retrieve = retrieve,
+                .valid_references = valid_references,
                 .delete = delete,
             } };
         }

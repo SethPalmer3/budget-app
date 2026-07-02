@@ -43,51 +43,51 @@ pub fn generateHandleList(
             const convertStr: *const fn([]const u8) ?index_key_type = 
                 fetchConvertStrFn(?index_key_type, index_key_type, conversion_fn_name);
             //------------ Getting Range ----------------
-                const start_index_str = 
-                    (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
-                next_arg += 1;
-                const end_index_str: ?[]const u8 = blk: {
-                    if(parsed.num_options > 2){
-                        break :blk (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
-                    }else{
-                        break :blk null;
-                    }
-                };
-                next_arg += 1;
+            const start_index_str = 
+                (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
+            next_arg += 1;
+            const end_index_str: ?[]const u8 = blk: {
+                if(parsed.num_options > 2){
+                    break :blk (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
+                }else{
+                    break :blk null;
+                }
+            };
+            next_arg += 1;
 
-                const start_index = 
-                    Database.Database.convertStringToIndexValue(
-                        DataType, IndexKey, start_index_str, convertStr
+            const start_index = 
+                Database.Database.convertStringToIndexValue(
+                    DataType, IndexKey, start_index_str, convertStr
+                ) orelse {
+                    writer.print(
+                        "Could not convert the index \"{s}\" correctly\n",
+                        .{start_index_str},
+                    ) catch {};
+                    return error.CouldNotConvertArgument;
+                }; 
+            const end_index: ?index_key_type = blk: {
+                if (end_index_str) |end_index_str_noop| {
+                    break :blk Database.Database.convertStringToIndexValue(
+                        DataType, IndexKey, end_index_str_noop, convertStr
                     ) orelse {
                         writer.print(
                             "Could not convert the index \"{s}\" correctly\n",
-                            .{start_index_str},
+                            .{end_index_str},
                         ) catch {};
                         return error.CouldNotConvertArgument;
-                    }; 
-                const end_index: ?index_key_type = blk: {
-                    if (end_index_str) |end_index_str_noop| {
-                        break :blk Database.Database.convertStringToIndexValue(
-                            DataType, IndexKey, end_index_str_noop, convertStr
-                        ) orelse {
-                            writer.print(
-                                "Could not convert the index \"{s}\" correctly\n",
-                                .{end_index_str},
-                            ) catch {};
-                            return error.CouldNotConvertArgument;
-                        };
-                    }else{break :blk null;}
-                };
+                    };
+                }else{break :blk null;}
+            };
 
-                return db.GetEntriesByIndex(
-                    .{.start_index = start_index, .end_index = end_index}
-                ) catch |err| {
-                    writer.print(
-                        "({s})Could not get entries with the indexes {s} and {s}\n",
-                        .{@errorName(err), start_index_str, end_index_str},
-                    ) catch {};
-                    return err;
-                };
+            return db.GetEntriesByIndex(
+                .{.start_index = start_index, .end_index = end_index}
+            ) catch |err| {
+                writer.print(
+                    "({s})Could not get entries with the indexes {s} and {s}\n",
+                    .{@errorName(err), start_index_str, end_index_str},
+                ) catch {};
+                return err;
+            };
         }
         pub fn execute(
             parsed: *CommandParse.Command,
@@ -100,7 +100,7 @@ pub fn generateHandleList(
             var db = cntxt.db;
             var next_arg: u64 = 1;
             const min_num_args = 2;
-            const index_key_type = Database.Database.convertIndexKeyIntoType(DataType, IndexKey);
+            // const index_key_type = Database.Database.convertIndexKeyIntoType(DataType, IndexKey);
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
                 writer.print("LIST [--field FILED NAME]\n", .{})catch{};
@@ -123,10 +123,20 @@ pub fn generateHandleList(
                 ) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             }
-            const items = collectItemsFromParser(parsed, next_arg, db, writer) catch {
-                return cmdManager.CommandState.ErrorContinue;
-            };
+            //------------ Getting Data -------------------
+            var query: Database.StorageEngine.StorageEngine(DataType, RefType).QueryType = undefined;
+            const record_info = @typeInfo(DataType); // Might need to check if this is not a struct
+            const record_fields = record_info.@"struct".fields;
+            for (record_fields) |field| {
+                if(parsed.getOption(.{.long_form = field.name, .short_form = field.name[0]})) |option| {
+                    const opt_arg = try parsed.getNthArgAfterOption(option, 1);
+                    const convert_arg = fetchConvertStrFn(?@FieldType(DataType, field.name), @FieldType(DataType, field.name), "convertStr")(opt_arg.name);
+                    @field(query, field.name) = convert_arg;
+                }
+            }
+            const items = try db.storage_engine.Query(db.alloc, query);
 
+            //------------ Printing Data -------------------
             writer.print("----------------------------", .{}) catch {};
             for (items) |*item| {
                 cntxt.displayData(item, writer);
