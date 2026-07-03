@@ -127,14 +127,25 @@ pub fn generateHandleList(
             var query: Database.StorageEngine.StorageEngine(DataType, RefType).QueryType = undefined;
             const record_info = @typeInfo(DataType); // Might need to check if this is not a struct
             const record_fields = record_info.@"struct".fields;
-            for (record_fields) |field| {
-                if(parsed.getOption(.{.long_form = field.name, .short_form = field.name[0]})) |option| {
-                    const opt_arg = try parsed.getNthArgAfterOption(option, 1);
+            inline for (record_fields) |field| {
+                iter_block: {
+                    const option =
+                        parsed.getOption(
+                            .{.long_form = field.name, .short_form = field.name[0]}
+                        ) catch {break :iter_block;};
+                    const opt_arg = parsed.getNthArgAfterOption(option.*, 1) catch |err| {
+                        writer.print("({s})Could not find argument\n", .{@errorName(err)}) catch {};
+                        return cmdManager.CommandState.ErrorContinue;
+                    };
+                    std.debug.print("Getting Converter for field: {s} a type of {s}\n", .{field.name, @typeName(@FieldType(DataType, field.name))});
                     const convert_arg = fetchConvertStrFn(?@FieldType(DataType, field.name), @FieldType(DataType, field.name), "convertStr")(opt_arg.name);
                     @field(query, field.name) = convert_arg;
                 }
             }
-            const items = try db.storage_engine.Query(db.alloc, query);
+            const items = db.storage_engine.Query(db.alloc, query) catch |err| {
+                writer.print("({s}) Could not fetch the query correctly", .{@errorName(err)}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            };
 
             //------------ Printing Data -------------------
             writer.print("----------------------------", .{}) catch {};

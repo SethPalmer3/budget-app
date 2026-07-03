@@ -9,28 +9,37 @@ pub fn fetchConvertStrFn(
     switch (index_info) {
         .int => {
             return struct{
-                pub fn conv(str: []const u8) ?returnType {
+                pub fn conv(str: []const u8) returnType {
                     return std.fmt.parseInt(index_type, str, 10) catch blk: {break :blk null;};
                 }
             }.conv;
         },
         .float => {
             return struct{
-                pub fn conv(str: []const u8) ?returnType {
+                pub fn conv(str: []const u8) returnType {
                     return std.fmt.parseFloat(index_type, str, 10) catch blk: {break :blk null;};
                 }
             }.conv;
         },
-        .pointer, .array => |ptr| {
-            if(ptr.size == .slice or ptr == .array) {
+        .pointer => {
+            if(index_info == .pointer and index_info.pointer.size == .slice) {
                 return struct{
-                    pub fn conv(str: []const u8) ?[]const u8 {
+                    pub fn conv(str: []const u8) returnType {
                         return str;
                     }
                 }.conv;
             }else{
                 @compileError("If the index type is a string like object, it must have a known length");
             }
+        },
+        .array => {
+            return struct{
+                pub fn conv(str: []const u8) returnType {
+                    var ret_str: [index_info.array.len]u8 = .{0} ** index_info.array.len;
+                    std.mem.copyForwards(index_info.array.child, &ret_str, str);
+                    return ret_str;
+                }
+            }.conv;
         },
         .@"struct", .@"enum", .@"union" => {
             if(!@hasDecl(index_type, conversion_fn_name)){

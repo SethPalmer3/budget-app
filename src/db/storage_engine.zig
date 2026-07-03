@@ -31,7 +31,7 @@ fn determineCompareFn(comptime T: type, a: T, b: T, size: ?usize) bool {
 pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
     return struct {
         const Self = @This();
-        const QueryType: type = blk: {
+        pub const QueryType: type = blk: {
             const data_info = @typeInfo(DataType);
             if (data_info != .@"struct") {
                 @compileError(
@@ -48,10 +48,10 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
 
                 const default_ptr: *const anyopaque = def_blk: {
                     const default_val: optType = null;
-                    break :def_blk @ptrCast(default_val);
+                    break :def_blk @ptrCast(&default_val);
                 };
 
-                field_names[i] = &o_field.name;
+                field_names[i] = o_field.name;
                 new_fields[i] = optType;
                 new_field_attr[i] = .{
                     .@"comptime" = o_field.is_comptime,
@@ -62,15 +62,15 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
             break :blk @Struct(
                     .auto,
                     null,
-                    field_names,
-                    new_fields, 
-                    new_field_attr);
+                    &field_names,
+                    &new_fields, 
+                    &new_field_attr);
         };
 
         pub const VTable = struct {
             store: *const fn (*anyopaque, DataType) anyerror!Reference,
             retrieve: *const fn (*anyopaque, Reference) anyerror!DataType,
-            valid_references: *const fn(*anyopaque) []const DataType,
+            valid_references: *const fn(*anyopaque) []const Reference,
             delete: *const fn (*anyopaque, Reference) anyerror!void,
         };
 
@@ -106,12 +106,18 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
                 const query_info = @typeInfo(QueryType);
                 inline for(query_info.@"struct".fields) |field| {
                     if(@field(query, field.name)) |field_value| { // Non-null value
-                        if (!determineCompareFn(@TypeOf(field_value), field_value, @field(data, field.name))) {
+                        if (
+                            !determineCompareFn(
+                                @TypeOf(field_value),
+                                field_value,
+                                @field(data, field.name),
+                                null
+                            )) {
                             continue :loop; // Skipping as some field doesn't match
                         }
                     }
                 }
-                arr.append(gpa,data);
+                try arr.append(gpa,data);
             }
             return arr.items;
         }
