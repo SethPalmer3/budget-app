@@ -76,6 +76,7 @@ pub fn build(b: *std.Build) void {
     // don't need and to put everything under a single module.
     const exe = b.addExecutable(.{
         .name = "budget_app",
+        .use_llvm = false,
         .root_module = b.createModule(.{
             // b.createModule defines a new module just like b.addModule but,
             // unlike b.addModule, it does not expose the module to consumers of

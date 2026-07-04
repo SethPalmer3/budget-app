@@ -85,11 +85,6 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
                 gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
             );
         }
-        pub fn infere_database(lse: *Self, gpa: std.mem.Allocator) Database.InferedDatbase(RecorcType, Self.ReferenceType, Key) {
-            return Database.InferedDatbase(RecorcType, Self.ReferenceType, Key).init(
-                gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
-            );
-        }
     };
 }
 

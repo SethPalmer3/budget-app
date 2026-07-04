@@ -46,13 +46,13 @@ pub const Record = struct {
     pub const max_desc_length = 1000;
     const Self = @This();
     name_size: u64,
-    name: [max_name_length]u8,
+    name: [max_name_length]u8 = .{0} ** max_name_length,
     date: Date,
     type: recordType,
     category: recordCategory,
     amount: u64, // <-- fixed point number div by 10
     desc_size: u64,
-    desc: [max_desc_length]u8,
+    desc: [max_desc_length]u8 = .{0} ** max_desc_length,
 
     pub fn prettyPrint(self: *const Self, w: *std.Io.Writer) void {
         w.print("Name: {s} ({s} {s})\n",

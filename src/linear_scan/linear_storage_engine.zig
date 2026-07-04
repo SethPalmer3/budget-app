@@ -35,6 +35,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             const heap_file = try path_utils.create_file_abs_or_cwd(options.io, options.heap_file_location, .{ .read = true, .truncate = false });
             const heap_file_stat = try heap_file.stat(options.io);
             var EOF_pos: u64 = @sizeOf(EOF_pos_type);
+            var number_of_stored_data: u64 = 0;
             if(heap_file_stat.size > 0){
                 // std.debug.print("Recovering from file\n", .{});
                 var heap_file_reader = heap_file.reader(options.io, buff);
@@ -45,17 +46,13 @@ pub fn linearStorageEngine(comptime DataType: type) type {
                 const num_entries_bytes = try generic_reader.readAlloc(alloc, @sizeOf(u64));
                 defer alloc.free(num_entries_bytes);
                 EOF_pos = std.mem.bytesToValue(u64, num_entries_bytes);
+                number_of_stored_data = ((EOF_pos - @sizeOf(EOF_pos_type)) / @sizeOf(DataType));
             }
-            const number_of_stored_data = ((EOF_pos - @sizeOf(EOF_pos_type)) / @sizeOf(DataType)) - 1;
             const actual_ref_buff_size = @max(number_of_stored_data, options.ref_buff_size);
             const valid_refs: []u64 = try alloc.alloc(u64, actual_ref_buff_size);
             for (0..number_of_stored_data) |i| {
                 valid_refs[i] = @sizeOf(EOF_pos_type) + (i * @sizeOf(DataType));
             }
-
-            std.debug.print("Calculated refs: {d}\n", .{number_of_stored_data});
-            std.debug.print("Size of ref buffer: {d}\n", .{valid_refs.len});
-            std.debug.print("References: {any}\n", .{valid_refs[0..number_of_stored_data]});
 
             return .{ 
                 .allocator = alloc,
@@ -93,7 +90,9 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             if (lse.valid_refs_size + 1 > lse.valid_refs.len) {
                 lse.valid_refs = try lse.allocator.realloc(lse.valid_refs, lse.valid_refs.len*2);
             }
+            lse.valid_refs[lse.valid_refs_size] = stored_ref;
             lse.valid_refs_size += 1;
+            std.debug.print("reference list {any}\n", .{lse.valid_refs[0..lse.valid_refs_size]});
 
             return stored_ref;
         }
@@ -107,8 +106,9 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var generic_reader = &heap_file_reader.interface;
 
             if (
-                ((ref-@sizeOf(Reference)) % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso
+                ((ref-@sizeOf(EOF_pos_type)) % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso
                 ) {
+                // std.debug.print("Invalid Reference {d}, DataType size {d}, EOF position {d}\n", .{ref, @sizeOf(DataType), lse.heap_EOF_pso});
                 return storageEngine.SEError.InvalidReference;
             }
             try heap_file_reader.seekTo(ref);
@@ -121,6 +121,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
 
         pub fn valid_references(ptr: *anyopaque) []const Reference{
             const lse: *Self = @ptrCast(@alignCast(ptr));
+            // std.debug.print("About to get valid references of length {d}\n", .{lse.valid_refs_size});
             return lse.valid_refs[0..lse.valid_refs_size];
         }
 

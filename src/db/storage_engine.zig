@@ -8,9 +8,14 @@ pub const SEError = error{
 
 fn determineCompareFn(comptime T: type, a: T, b: T, size: ?usize) bool {
     const t_info = @typeInfo(T);
-    if(t_info == .pointer) { // Handle array like types
-        switch (t_info.pointer.size) {
-            .slice => return std.mem.eql(t_info.pointer.child, a, b),
+    switch(t_info) { // Handle array like types
+        .pointer => switch (t_info.pointer.size) {
+            .slice => {
+                if(size) |length| {
+                    return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
+                }
+                return std.mem.eql(t_info.pointer.child, a, b);
+            },
             .many => {
                 const aSlice = a[0..size];
                 const bSlice = b[0..size];
@@ -19,10 +24,19 @@ fn determineCompareFn(comptime T: type, a: T, b: T, size: ?usize) bool {
             .c, .one => {
                 return std.meta.eql(a.*, b.*); // Following the pointer
             }
+        },
+        .array => {
+            if(size) |length| {
+                return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
+            }
+            std.debug.print("a length: {d}, b length: {d}\n", .{a.len, b.len});
+            return std.mem.eql(t_info.array.child, &a, &b);
+        },
+        else => {
+            return std.meta.eql(a, b); // Catch everything else
         }
     }
-
-    return std.meta.eql(a, b); // Catch everything else
+    return false; // Fall back value, I don't think this can be actually reached
 }
 
 /// Generic storage engine type to store a predetermined data type
@@ -100,9 +114,13 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
         }
 
         pub fn Query(se: *Self, gpa: std.mem.Allocator, query: QueryType) ![]const DataType{
-            var arr = std.ArrayList(DataType).empty;
-            loop: for(se.vtable.valid_references(se)) |reference| {
-                const data = try se.vtable.retrieve(se, reference);
+            var arr = try gpa.alloc(DataType, se.vtable.valid_references(se.ptr).len);
+            var next_arr_ptr: u64 = 0;
+            loop: for(se.vtable.valid_references(se.ptr)) |reference| {
+                const data = se.vtable.retrieve(se.ptr, reference) catch |err| {
+                    gpa.free(arr);
+                    return err;
+                };
                 const query_info = @typeInfo(QueryType);
                 inline for(query_info.@"struct".fields) |field| {
                     if(@field(query, field.name)) |field_value| { // Non-null value
@@ -117,9 +135,14 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
                         }
                     }
                 }
-                try arr.append(gpa,data);
+                arr[next_arr_ptr] = data;
+                next_arr_ptr+=1;
             }
-            return arr.items;
+            arr = gpa.realloc(arr, next_arr_ptr) catch |err| {
+                gpa.free(arr);
+                return err;
+            };
+            return arr;
         }
     };
 }
