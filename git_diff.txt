@@ -1,0 +1,707 @@
+diff --git a/data/heap.db b/data/heap.db
+index c30a2b2..1d1534e 100644
+Binary files a/data/heap.db and b/data/heap.db differ
+diff --git a/data/index.ind b/data/index.ind
+index 9ffcdd9..58d2887 100644
+Binary files a/data/index.ind and b/data/index.ind differ
+diff --git a/src/db/database.zig b/src/db/database.zig
+index 7092b1a..1f65763 100644
+--- a/src/db/database.zig
++++ b/src/db/database.zig
+@@ -1,6 +1,7 @@
+ const std = @import("std");
+ const Indexer = @import("indexer.zig");
+ const StorageEngine = @import("storage_engine.zig");
++const root = @import("root.zig");
+ 
+ pub const DBError = error{
+     CannotInitalize,
+@@ -9,50 +10,11 @@ pub const DBError = error{
+     NullIndexWithNonInferedDB,
+ };
+ 
+-/// Convert the pased string into its respective
+-/// index value using a conversion function
+-pub fn convertStringToIndexValue(
+-    comptime Datatype: type,
+-    comptime Key: []const u8,
+-    index_str: []const u8,
+-    convertStr: *const fn([]const u8) ?@FieldType(Datatype, Key)
+-) ?@FieldType(Datatype, Key) {
+-    return convertStr(index_str);
+-}
+-
+-pub fn convertIndexKeyIntoType(
+-    comptime Datatype: type, 
+-    comptime IndexKey: anytype,
+-) type {
+-    const i_type = @TypeOf(IndexKey);
+-    if(i_type == type){
+-        return IndexKey;
+-    }
+-    const i_info = @typeInfo(i_type);
+-    if(i_info != .pointer){
+-        @compileError(
+-            "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
+-    }
+-    const child_info = @typeInfo(i_info.pointer.child);
+-    if((i_info.pointer.size == .one and child_info == .array) or 
+-        (i_info.pointer.size == .slice and i_info.pointer.child == u8)
+-    ){
+-        const converted_str: []const u8 = IndexKey;
+-        if(!@hasField(Datatype, converted_str)){
+-            @compileError("Keys must be a field in the data type \'D\'");
+-        }
+-        // const inferred_type = @FieldType(Datatype, IndexKey);
+-        return @FieldType(Datatype, converted_str);
+-    }
+-    @compileError(
+-        "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
+-}
+-
+ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
+     return struct{
+         pub const DataType = D;
+         pub const ReferenceType = R;
+-        pub const IndexType = convertIndexKeyIntoType(DataType, I);
++        pub const IndexType = root.convertIndexKeyIntoType(DataType, I);
+         const Infered: bool = blk:{
+             const i_type = @TypeOf(I);
+             const i_info = @typeInfo(i_type);
+@@ -61,7 +23,13 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
+             }
+             break :blk false;
+         };
+-        const StorageEngineType = StorageEngine.StorageEngine(D, R);
++        const range_field_names = root.getCompareableFieldNames(D, root.container_compare_fn_name);
++        const StorageEngineType =
++            StorageEngine.StorageEngine(
++                D,
++                R,
++                range_field_names
++            );
+         const IndexerType = Indexer.Indexer(IndexType, R);
+         const Self = @This();
+ 
+diff --git a/src/db/root.zig b/src/db/root.zig
+index 79b9c93..26a2044 100644
+--- a/src/db/root.zig
++++ b/src/db/root.zig
+@@ -1,3 +1,147 @@
++const std = @import("std");
+ pub const Database = @import("database.zig");
+ pub const Indexer = @import("indexer.zig");
+ pub const StorageEngine = @import("storage_engine.zig");
++
++pub const container_compare_fn_name = "compare";
++
++/// For the input type T 
++pub inline fn getCompareableFieldNames(
++    comptime T: type,
++    comptime comparison_fn_name: []const u8
++) []const []const u8{
++    return comptime blk: {
++        const data_info = @typeInfo(T);
++        if(data_info != .@"struct" and data_info != .@"enum" and data_info != .@"union"){
++            @compileError("The checked type " ++ @typeName(T) ++ " needs to be a container");
++        }
++        var ranged_field_names: [data_info.@"struct".fields.len] []const u8 = undefined;
++        var next_range_field_name_index: u64 = 0;
++        for(data_info.@"struct".fields) |field| {
++            const field_info = @typeInfo(field.type);
++            switch (field_info) {
++                .int, .float, .comptime_int, .comptime_float => {
++                    ranged_field_names[next_range_field_name_index] = field.name;
++                    next_range_field_name_index += 1;
++
++                },
++                .@"struct", .@"enum", .@"union" => {
++                    if(@hasDecl(field.type, comparison_fn_name)){
++                        const compare_decl = @field(field.type, comparison_fn_name);
++                        const compare_decl_info = @typeInfo(@TypeOf(compare_decl));
++                        if(compare_decl_info != .@"fn") {
++                            @compileError("The field " ++ field.name ++ " must have a function named " ++ comparison_fn_name ++ " as it is a container.");
++                        }
++                        ranged_field_names[next_range_field_name_index] = field.name;
++                        next_range_field_name_index += 1;
++                    }
++                },
++                else => {},
++            }
++        }
++
++        var final_field_names: [next_range_field_name_index][]const u8 = undefined;
++        for(0..next_range_field_name_index) |i| {
++            final_field_names[i] = ranged_field_names[i];
++        }
++        const const_arr = final_field_names;
++        // const ret = ranged_field_names[0..next_range_field_name_index]; 
++        break :blk &const_arr;
++    };
++}
++
++/// Given an input type T and two operands and an operation determine
++/// if the inequality/equality hold true. If the two operands don't have
++/// a way to compare themselves then this function will return false.
++pub fn getCompare(comptime T: type, comptime compare_fn_name: []const u8, a: T, op: std.math.CompareOperator, b: T) bool {
++    const t_info = @typeInfo(T);
++    switch(t_info) {
++        .int, .float, .comptime_int, .comptime_float => {
++            return std.math.compare(a, op, b);
++        },
++        .@"struct", .@"enum", .@"union" => {
++            const compare_fn = @field(T, compare_fn_name);
++            if (@TypeOf(compare_fn) != fn (T, std.math.CompareOperator, T) bool) {
++                @compileError("The type " ++ @typeName(T) ++ " needs a method called " ++ compare_fn_name ++ " to be properly compared");
++            }
++            return compare_fn(a, op, b);
++        },
++        else => false, // Catch all
++    }
++
++}
++
++/// Given an input type T determine if the two operands equal to
++/// each other as best it can
++pub fn determineEqlFn(comptime T: type, a: T, b: T, size: ?usize) bool {
++    const t_info = @typeInfo(T);
++    switch(t_info) { // Handle array like types
++        .pointer => switch (t_info.pointer.size) {
++            .slice => {
++                if(size) |length| {
++                    return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
++                }
++                return std.mem.eql(t_info.pointer.child, a, b);
++            },
++            .many => {
++                const aSlice = a[0..size];
++                const bSlice = b[0..size];
++                return std.mem.eql(t_info.pointer.child, aSlice, bSlice);
++            },
++            .c, .one => {
++                return std.meta.eql(a.*, b.*); // Following the pointer
++            }
++        },
++        .array => {
++            if(size) |length| {
++                return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
++            }
++            std.debug.print("a length: {d}, b length: {d}\n", .{a.len, b.len});
++            return std.mem.eql(t_info.array.child, &a, &b);
++        },
++        else => {
++            return std.meta.eql(a, b); // Catch everything else
++        }
++    }
++    return false; // Fall back value, I don't think this can be actually reached
++}
++
++/// Convert the pased string into its respective
++/// index value using a conversion function
++pub fn convertStringToIndexValue(
++    comptime Datatype: type,
++    comptime Key: []const u8,
++    index_str: []const u8,
++    convertStr: *const fn([]const u8) ?@FieldType(Datatype, Key)
++) ?@FieldType(Datatype, Key) {
++    return convertStr(index_str);
++}
++
++pub fn convertIndexKeyIntoType(
++    comptime Datatype: type, 
++    comptime IndexKey: anytype,
++) type {
++    const i_type = @TypeOf(IndexKey);
++    if(i_type == type){
++        return IndexKey;
++    }
++    const i_info = @typeInfo(i_type);
++    if(i_info != .pointer){
++        @compileError(
++            "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
++    }
++    const child_info = @typeInfo(i_info.pointer.child);
++    if((i_info.pointer.size == .one and child_info == .array) or 
++        (i_info.pointer.size == .slice and i_info.pointer.child == u8)
++    ){
++        const converted_str: []const u8 = IndexKey;
++        if(!@hasField(Datatype, converted_str)){
++            @compileError("Keys must be a field in the data type \'D\'");
++        }
++        // const inferred_type = @FieldType(Datatype, IndexKey);
++        return @FieldType(Datatype, converted_str);
++    }
++    @compileError(
++        "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
++}
++
+diff --git a/src/db/storage_engine.zig b/src/db/storage_engine.zig
+index a13bf4f..a627531 100644
+--- a/src/db/storage_engine.zig
++++ b/src/db/storage_engine.zig
+@@ -1,4 +1,5 @@
+ const std = @import("std");
++const root = @import("root.zig");
+ 
+ pub const SEError = error{
+     CannotStoreData,
+@@ -6,47 +7,30 @@ pub const SEError = error{
+     DataDeleted,
+ };
+ 
+-fn determineCompareFn(comptime T: type, a: T, b: T, size: ?usize) bool {
+-    const t_info = @typeInfo(T);
+-    switch(t_info) { // Handle array like types
+-        .pointer => switch (t_info.pointer.size) {
+-            .slice => {
+-                if(size) |length| {
+-                    return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
+-                }
+-                return std.mem.eql(t_info.pointer.child, a, b);
+-            },
+-            .many => {
+-                const aSlice = a[0..size];
+-                const bSlice = b[0..size];
+-                return std.mem.eql(t_info.pointer.child, aSlice, bSlice);
+-            },
+-            .c, .one => {
+-                return std.meta.eql(a.*, b.*); // Following the pointer
+-            }
+-        },
+-        .array => {
+-            if(size) |length| {
+-                return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
+-            }
+-            std.debug.print("a length: {d}, b length: {d}\n", .{a.len, b.len});
+-            return std.mem.eql(t_info.array.child, &a, &b);
+-        },
+-        else => {
+-            return std.meta.eql(a, b); // Catch everything else
+-        }
+-    }
+-    return false; // Fall back value, I don't think this can be actually reached
++
++pub fn Range(comptime T: type) type {
++    return struct {
++        min: T = null,
++        max: T = null,
++    };
++}
++
++pub fn QueryParam(comptime T: type) type {
++    return union (enum) {
++        exact: T,
++        range: Range(T),
++    };
+ }
+ 
+ /// Generic storage engine type to store a predetermined data type
+ /// and will return a kind of value that represents a kind of
+ /// reference to that data to be retrieved quickly again
+-pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
++pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime ranged_params: []const []const u8) type {
+     return struct {
+         const Self = @This();
+         pub const QueryType: type = blk: {
+             const data_info = @typeInfo(DataType);
++
+             if (data_info != .@"struct") {
+                 @compileError(
+                     "The data type must be a struct got " ++ @typeName(DataType) ++ " instead."
+@@ -58,7 +42,16 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
+             var new_field_attr: [original_fields.len]std.builtin.Type.StructField.Attributes = undefined;
+             for (original_fields, 0..) |o_field, i| {
+                 const field_type = @typeInfo(o_field.type);
+-                const optType = if(field_type == .optional) o_field.type else ?o_field.type;
++                var is_range: bool = false;
++                for (ranged_params) |range_param| {
++                    if(std.mem.eql(u8, range_param, o_field.name)) {
++                        is_range = true;
++                        break;
++                    }
++                }
++                const base_type = if(field_type == .optional) o_field.type else ?o_field.type;
++
++                const optType = if(is_range) ?QueryParam(base_type) else base_type;
+ 
+                 const default_ptr: *const anyopaque = def_blk: {
+                     const default_val: optType = null;
+@@ -116,27 +109,64 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
+         pub fn Query(se: *Self, gpa: std.mem.Allocator, query: QueryType) ![]const DataType{
+             var arr = try gpa.alloc(DataType, se.vtable.valid_references(se.ptr).len);
+             var next_arr_ptr: u64 = 0;
+-            loop: for(se.vtable.valid_references(se.ptr)) |reference| {
++            for(se.vtable.valid_references(se.ptr)) |reference| {
+                 const data = se.vtable.retrieve(se.ptr, reference) catch |err| {
+                     gpa.free(arr);
+                     return err;
+                 };
+                 const query_info = @typeInfo(QueryType);
+                 inline for(query_info.@"struct".fields) |field| {
+-                    if(@field(query, field.name)) |field_value| { // Non-null value
+-                        if (
+-                            !determineCompareFn(
+-                                @TypeOf(field_value),
+-                                field_value,
+-                                @field(data, field.name),
+-                                null
+-                            )) {
+-                            continue :loop; // Skipping as some field doesn't match
++                    if(@field(query, field.name)) |query_field_value| { // Non-null value
++                        const is_range_field = comptime blk: {
++                            var is_range = false;
++                            for(ranged_params) |range_param| {
++                                if(std.mem.eql(u8, range_param, field.name)){ // Is a rangeable field
++                                    is_range = true;
++                                }
++                            }
++                            break :blk is_range;
++                        };
++
++                        const data_field_val = @field(data, field.name);
++                        const data_field_type = @TypeOf(data_field_val);
++
++                        if(is_range_field){
++                            //switch on the QueryParam
++                            switch(query_field_value){
++                                .exact => |exact_value| {
++                                    if (
++                                        root.determineEqlFn(
++                                            @TypeOf(exact_value),
++                                            exact_value,
++                                            data_field_val,
++                                            null
++                                        )) {
++                                        arr[next_arr_ptr] = data;
++                                        next_arr_ptr+=1;
++                                    }
++                                },
++                                .range => |range_value| {
++                                    if(root.getCompare(data_field_type, root.container_compare_fn_name, range_value.min.?, .lte, data_field_val) and 
++                                        root.getCompare(data_field_type, root.container_compare_fn_name, range_value.max.?, .gte, data_field_val)){
++                                        arr[next_arr_ptr] = data;
++                                        next_arr_ptr+=1;
++                                    }
++                                }
++                            }
++                        }else{
++                            if (
++                                !root.determineEqlFn(
++                                    @TypeOf(query_field_value),
++                                    query_field_value,
++                                    data_field_val,
++                                    null
++                                )) {
++                                arr[next_arr_ptr] = data;
++                                next_arr_ptr+=1;
++                            }
+                         }
+                     }
+                 }
+-                arr[next_arr_ptr] = data;
+-                next_arr_ptr+=1;
+             }
+             arr = gpa.realloc(arr, next_arr_ptr) catch |err| {
+                 gpa.free(arr);
+diff --git a/src/domain/dates.zig b/src/domain/dates.zig
+index 5650eef..03bd67d 100644
+--- a/src/domain/dates.zig
++++ b/src/domain/dates.zig
+@@ -12,7 +12,7 @@ pub fn order(self: *const Self, other: *const Self) std.math.Order{
+     if(self.eql(other)) {return .eq;}
+ }
+ 
+-pub fn compFn(self: Self, op: std.math.CompareOperator, other: Self) bool {
++pub fn compare(self: Self, op: std.math.CompareOperator, other: Self) bool {
+     return switch (op) {
+         .eq => self.eql(&other),
+         .gt => self.gt(&other),
+diff --git a/src/linear_scan/LinearScan.zig b/src/linear_scan/LinearScan.zig
+index 02748f9..2a1d3ec 100644
+--- a/src/linear_scan/LinearScan.zig
++++ b/src/linear_scan/LinearScan.zig
+@@ -80,9 +80,9 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
+             return try lse.lin_indexer.indexer().LookUpData(gpa, index, lse.lin_se);
+         }
+ 
+-        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, Self.ReferenceType, Key) {
++        pub fn database(ldb: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, Self.ReferenceType, Key) {
+             return Database.Database(RecorcType, Self.ReferenceType, Key).init(
+-                gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
++                gpa, ldb.lin_indexer.indexer(), ldb.lin_se.storage_engine()
+             );
+         }
+     };
+diff --git a/src/linear_scan/linear_storage_engine.zig b/src/linear_scan/linear_storage_engine.zig
+index cf46607..a6175d8 100644
+--- a/src/linear_scan/linear_storage_engine.zig
++++ b/src/linear_scan/linear_storage_engine.zig
+@@ -1,6 +1,8 @@
+ const std = @import("std");
+ const Allocator = std.mem.Allocator;
+-const storageEngine = @import("Database").StorageEngine;
++const Databases = @import("Database");
++const storageEngine = Databases.StorageEngine;
++
+ const path_utils = @import("./path_funcs.zig");
+ 
+ const fill_character: u8 = 0;
+@@ -132,7 +134,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
+             return;
+         }
+ 
+-        pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference) {
++        pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference, Databases.getCompareableFieldNames(DataType, Databases.container_compare_fn_name)) {
+             return .{ .ptr = lse, .vtable = &.{
+                 .store = store,
+                 .retrieve = retrieve,
+diff --git a/src/main.zig b/src/main.zig
+index 4efad1b..b7341ae 100644
+--- a/src/main.zig
++++ b/src/main.zig
+@@ -32,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
+ 
+     const lin_db_type = LinearScan.LinearScanDB.LinearStorageDB(Record, MainKey);
+     var linear_db = try lin_db_type
+-        .init(gpa, Date.compFn, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
++        .init(gpa, Date.compare, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
+     defer linear_db.deinit(gpa);
+     var database = linear_db.database(gpa);
+ 
+diff --git a/src/terminal_app/command_parsing/Command.zig b/src/terminal_app/command_parsing/Command.zig
+index 31de9bc..8fcc407 100644
+--- a/src/terminal_app/command_parsing/Command.zig
++++ b/src/terminal_app/command_parsing/Command.zig
+@@ -74,7 +74,7 @@ pub fn getNthArgAfterOption(self: *Command, opt: Option, ind: usize) !*const Arg
+     for (self.fragments, 0..) |fragment, i| {
+         if (i >= self.size) {break;}
+         if(found_opt){
+-            if (fragment != .Arg) {continue;}
++            if (fragment != .Arg) {return CommandError.CannotFindFragment;} // Broken continuous argument
+ 
+             arg_ind -= 1;
+             if(arg_ind == 0){
+diff --git a/src/terminal_app/commands/list_command.zig b/src/terminal_app/commands/list_command.zig
+index 3e9ca64..42220c0 100644
+--- a/src/terminal_app/commands/list_command.zig
++++ b/src/terminal_app/commands/list_command.zig
+@@ -1,5 +1,6 @@
+ const std = @import("std");
+ const Database = @import("Database");
++const QueryParam = Database.StorageEngine.QueryParam;
+ const DBType = Database.Database.Database;
+ const TermCommands = @import("../term_commands.zig");
+ const cmdManager = @import("../command_manager.zig");
+@@ -16,6 +17,7 @@ const Date = Domain.Date;
+ pub const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
+ 
+ const LIST_COMMAND_NAME = "LIST";
++const string_conversion_name = "convertStr";
+ 
+ pub fn contextPackage(
+     comptime DataType: type,
+@@ -29,6 +31,15 @@ pub fn contextPackage(
+     };
+ }
+ 
++inline fn isRangedField(comptime ranged_fields: []const []const u8, field_name: []const u8) bool{
++    for (ranged_fields) |range_field_name| {
++        if(std.mem.eql(u8, range_field_name, field_name)){
++            return true;
++        }
++    }
++    return false;
++}
++
+ pub fn generateHandleList(
+     comptime DataType: type,
+     comptime RefType: type,
+@@ -36,58 +47,6 @@ pub fn generateHandleList(
+     comptime conversion_fn_name: []const u8,
+ )*const fn(*CommandParse.Command, *std.Io.Reader, *std.Io.Writer, *anyopaque) cmdManager.CommandState{
+     return struct{
+-        fn collectItemsFromParser(parsed: *CommandParse.Command, next_argument: u64, db: *DBType(DataType, RefType, IndexKey), writer: *std.Io.Writer) ![]const DataType {
+-            var next_arg = next_argument;
+-            const index_key_type = Database.Database.convertIndexKeyIntoType(DataType, IndexKey);
+-            const convertStr: *const fn([]const u8) ?index_key_type = 
+-                fetchConvertStrFn(?index_key_type, index_key_type, conversion_fn_name);
+-            //------------ Getting Range ----------------
+-            const start_index_str = 
+-                (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
+-            next_arg += 1;
+-            const end_index_str: ?[]const u8 = blk: {
+-                if(parsed.num_options > 2){
+-                    break :blk (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
+-                }else{
+-                    break :blk null;
+-                }
+-            };
+-            next_arg += 1;
+-
+-            const start_index = 
+-                Database.Database.convertStringToIndexValue(
+-                    DataType, IndexKey, start_index_str, convertStr
+-                ) orelse {
+-                    writer.print(
+-                        "Could not convert the index \"{s}\" correctly\n",
+-                        .{start_index_str},
+-                    ) catch {};
+-                    return error.CouldNotConvertArgument;
+-                }; 
+-            const end_index: ?index_key_type = blk: {
+-                if (end_index_str) |end_index_str_noop| {
+-                    break :blk Database.Database.convertStringToIndexValue(
+-                        DataType, IndexKey, end_index_str_noop, convertStr
+-                    ) orelse {
+-                        writer.print(
+-                            "Could not convert the index \"{s}\" correctly\n",
+-                            .{end_index_str},
+-                        ) catch {};
+-                        return error.CouldNotConvertArgument;
+-                    };
+-                }else{break :blk null;}
+-            };
+-
+-            return db.GetEntriesByIndex(
+-                .{.start_index = start_index, .end_index = end_index}
+-            ) catch |err| {
+-                writer.print(
+-                    "({s})Could not get entries with the indexes {s} and {s}\n",
+-                    .{@errorName(err), start_index_str, end_index_str},
+-                ) catch {};
+-                return err;
+-            };
+-        }
+         pub fn execute(
+             parsed: *CommandParse.Command,
+             reader: *std.Io.Reader,
+@@ -99,24 +58,23 @@ pub fn generateHandleList(
+             var db = cntxt.db;
+             var next_arg: u64 = 1;
+             const min_num_args = 2;
++
++            const ranged_list: []const []const u8 = 
++                comptime Database.getCompareableFieldNames(DataType, Database.container_compare_fn_name);
+             //------------ Checking Help Flag -------------------
+             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
+-                writer.print("LIST [--field FILED NAME]\n", .{})catch{};
++                writer.print("LIST [--field <VALUE> [MAX VALUE]...]\n", .{})catch{};
+                 writer.print("Avaliable fields:\n", .{})catch{};
+                 const data_info = @typeInfo(DataType);
+                 inline for (data_info.@"struct".fields) |field| {
+-                    writer.print("--{s}\n", .{field.name}) catch {};
++                    if(isRangedField(ranged_list, field.name)){
++                        writer.print("--{s}(can have a range)\n", .{field.name}) catch {};
++                    }else{
++                        writer.print("--{s}\n", .{field.name}) catch {};
++                    }
+                 }
+                 return cmdManager.CommandState.Continue;
+-            }else |_|{
+-                // _ = err;
+-                // switch (err) {
+-                //     CommandParse.Command.CommandError.CannotFindFragment => {
+-                //         writer.print("Unknown Option given\n", .{})catch{};
+-                //     },
+-                //     else => {}
+-                // }
+-            }
++            }else |_|{}
+             //------------ Checking Command -------------------
+             _ = parsed.getNthArg(next_arg) catch {return cmdManager.CommandState.ErrorContinue;};
+             next_arg += 1;
+@@ -127,25 +85,74 @@ pub fn generateHandleList(
+                 ) catch {};
+                 return cmdManager.CommandState.ErrorContinue;
+             }
+-            //------------ Getting Data -------------------
+-            var query: Database.StorageEngine.StorageEngine(DataType, RefType).QueryType = .{};
+-            const record_info = @typeInfo(DataType); // Might need to check if this is not a struct
+-            const record_fields = record_info.@"struct".fields;
+-            inline for (record_fields) |field| {
++            //------------ Setting up Query Data -------------------
++            var query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = .{};
++
++            const data_info = @typeInfo(DataType); // Might need to check if this is not a struct
++            inline for (data_info.@"struct".fields) |data_field| {
+                 iter_block: {
+-                    const option =
+-                        parsed.getOption(
+-                            .{.long_form = field.name, .short_form = field.name[0], .has_short_form = false}
+-                        ) catch {break :iter_block;};
++                    const option = // Fetch option with field name
++                        parsed.getOption(.{
++                            .long_form = data_field.name,
++                            .short_form = data_field.name[0],
++                            .has_short_form = false
++                        }) catch {break :iter_block;};
++
++                    // Get first argument
+                     const opt_arg = parsed.getNthArgAfterOption(option.*, 1) catch |err| {
+                         writer.print("({s})Could not find argument\n", .{@errorName(err)}) catch {};
+                         return cmdManager.CommandState.ErrorContinue;
+                     };
+-                    const convert_arg = fetchConvertStrFn(?@FieldType(DataType, field.name), @FieldType(DataType, field.name), "convertStr")(opt_arg.name);
+-                    @field(query, field.name) = convert_arg;
++                    // Get possible second value
++                    const opt_arg_max: ?*const CommandParse.Argument =
++                        parsed.getNthArgAfterOption(option.*, 2) catch null;
++
++                    const conversion_fn = // conversion function for both arguments
++                        fetchConvertStrFn(?data_field.type, data_field.type, conversion_fn_name);
++
++                    // Convert first arguement to its associated field type
++                    const convert_arg =
++                        conversion_fn(opt_arg.name);
++                    // Convert optional second argument to the same field type
++                    const convert_arg_max = 
++                        if(opt_arg_max) |max_opt_arg| conversion_fn(max_opt_arg.name) else null;
++
++                    // Populate the corresponding query field with the 
++                    // appropriate value
++                    @field(query, data_field.name) = blk: {
++                        const is_range: bool = comptime is_range_blk: {
++                            var ranged = false;
++                            for (ranged_list) |field_name| {
++                                if(std.mem.eql(u8, field_name, data_field.name)){
++                                    ranged = true;
++                                }
++                            }
++                            break :is_range_blk ranged;
++                        };
++                        // Check if the type of the query field is a query parameter
++                        // with the child type being the data type field
++                        if(is_range){
++                            // If optional second argument exists
++                            if(convert_arg_max) |arg_max| {
++                                // send a query parameter of an `range` tag
++                                break :blk QueryParam(@TypeOf(convert_arg)){
++                                    .range = .{
++                                        .max = arg_max,
++                                        .min = convert_arg 
++                                    }
++                                };
++                            }else{
++                                // else use the `exact` tag
++                                break :blk QueryParam(@TypeOf(convert_arg)){.exact = convert_arg};
++                            }
++                        }else{
++                            break :blk convert_arg;
++                        }
++                    };
+                 }
+             }
+-            // std.debug.print("Query: {any}\n", .{query});
++
++            //------------ Query Execution -------------------
+             const items = db.storage_engine.Query(db.alloc, query) catch |err| {
+                 writer.print("({s}) Could not fetch the query correctly\n", .{@errorName(err)}) catch {};
+                 return cmdManager.CommandState.ErrorContinue;
+@@ -156,7 +163,6 @@ pub fn generateHandleList(
+             writer.print("----------------------------\n", .{}) catch {};
+             for (items) |*item| {
+                 cntxt.displayData(item, writer);
+-                // std.debug.print("{any}\n", .{item.*});
+                 writer.print("----------------------------\n", .{}) catch {};
+             }
+             // writer.print("\n", .{}) catch {};

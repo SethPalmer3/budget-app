@@ -5,6 +5,15 @@ pub const StorageEngine = @import("storage_engine.zig");
 
 pub const container_compare_fn_name = "compare";
 
+pub inline fn isRangedField(comptime ranged_fields: []const []const u8, field_name: []const u8) bool{
+    for (ranged_fields) |range_field_name| {
+        if(std.mem.eql(u8, range_field_name, field_name)){
+            return true;
+        }
+    }
+    return false;
+}
+
 /// For the input type T 
 pub inline fn getCompareableFieldNames(
     comptime T: type,
@@ -96,10 +105,10 @@ pub fn determineEqlFn(comptime T: type, a: T, b: T, size: ?usize) bool {
             if(size) |length| {
                 return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
             }
-            std.debug.print("a length: {d}, b length: {d}\n", .{a.len, b.len});
             return std.mem.eql(t_info.array.child, &a, &b);
         },
         else => {
+            std.debug.print("{any} == {any} => {}\n", .{a, b, std.meta.eql(a, b)});
             return std.meta.eql(a, b); // Catch everything else
         }
     }

@@ -31,14 +31,6 @@ pub fn contextPackage(
     };
 }
 
-inline fn isRangedField(comptime ranged_fields: []const []const u8, field_name: []const u8) bool{
-    for (ranged_fields) |range_field_name| {
-        if(std.mem.eql(u8, range_field_name, field_name)){
-            return true;
-        }
-    }
-    return false;
-}
 
 pub fn generateHandleList(
     comptime DataType: type,
@@ -67,7 +59,7 @@ pub fn generateHandleList(
                 writer.print("Avaliable fields:\n", .{})catch{};
                 const data_info = @typeInfo(DataType);
                 inline for (data_info.@"struct".fields) |field| {
-                    if(isRangedField(ranged_list, field.name)){
+                    if(Database.isRangedField(ranged_list, field.name)){
                         writer.print("--{s}(can have a range)\n", .{field.name}) catch {};
                     }else{
                         writer.print("--{s}\n", .{field.name}) catch {};
@@ -107,12 +99,22 @@ pub fn generateHandleList(
                     const opt_arg_max: ?*const CommandParse.Argument =
                         parsed.getNthArgAfterOption(option.*, 2) catch null;
 
+                    // Check if given a second arguement even with a non-ranged field
+                    if(opt_arg_max != null and !Database.isRangedField(ranged_list, data_field.name)) {
+                        writer.print("Field '{s}' does not accept ranges\n", .{data_field.name}) catch {};
+                        return cmdManager.CommandState.ErrorContinue;
+                    }
+
                     const conversion_fn = // conversion function for both arguments
                         fetchConvertStrFn(?data_field.type, data_field.type, conversion_fn_name);
 
                     // Convert first arguement to its associated field type
                     const convert_arg =
-                        conversion_fn(opt_arg.name);
+                        conversion_fn(opt_arg.name) orelse {
+                            writer.print("Could not convert '{s}' properly\n", .{opt_arg.name}) catch {};
+                            return cmdManager.CommandState.ErrorContinue;
+                    };
+                    // std.debug.print("converted_arg: {any}\n", .{convert_arg});
                     // Convert optional second argument to the same field type
                     const convert_arg_max = 
                         if(opt_arg_max) |max_opt_arg| conversion_fn(max_opt_arg.name) else null;
@@ -151,6 +153,7 @@ pub fn generateHandleList(
                     };
                 }
             }
+            // std.debug.print("query: {any}\n", .{query});
 
             //------------ Query Execution -------------------
             const items = db.storage_engine.Query(db.alloc, query) catch |err| {

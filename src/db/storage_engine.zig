@@ -10,8 +10,8 @@ pub const SEError = error{
 
 pub fn Range(comptime T: type) type {
     return struct {
-        min: T = null,
-        max: T = null,
+        min: T,
+        max: T,
     };
 }
 
@@ -41,7 +41,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
             var new_fields: [original_fields.len]type = undefined;
             var new_field_attr: [original_fields.len]std.builtin.Type.StructField.Attributes = undefined;
             for (original_fields, 0..) |o_field, i| {
-                const field_type = @typeInfo(o_field.type);
+                // const field_type = @typeInfo(o_field.type);
                 var is_range: bool = false;
                 for (ranged_params) |range_param| {
                     if(std.mem.eql(u8, range_param, o_field.name)) {
@@ -49,9 +49,9 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
                         break;
                     }
                 }
-                const base_type = if(field_type == .optional) o_field.type else ?o_field.type;
+                // const base_type = if(field_type == .optional) o_field.type else ?o_field.type;
 
-                const optType = if(is_range) ?QueryParam(base_type) else base_type;
+                const optType = if(is_range) ?QueryParam(o_field.type) else ?o_field.type;
 
                 const default_ptr: *const anyopaque = def_blk: {
                     const default_val: optType = null;
@@ -115,6 +115,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
                     return err;
                 };
                 const query_info = @typeInfo(QueryType);
+                var include_data_point = true;
                 inline for(query_info.@"struct".fields) |field| {
                     if(@field(query, field.name)) |query_field_value| { // Non-null value
                         const is_range_field = comptime blk: {
@@ -135,22 +136,20 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
                             switch(query_field_value){
                                 .exact => |exact_value| {
                                     if (
-                                        root.determineEqlFn(
+                                        !root.determineEqlFn(
                                             @TypeOf(exact_value),
                                             exact_value,
                                             data_field_val,
                                             null
                                         )) {
-                                        arr[next_arr_ptr] = data;
-                                        next_arr_ptr+=1;
+                                        include_data_point = false;
                                     }
                                 },
                                 .range => |range_value| {
-                                    if(root.getCompare(data_field_type, root.container_compare_fn_name, range_value.min.?, .lte, data_field_val) and 
-                                        root.getCompare(data_field_type, root.container_compare_fn_name, range_value.max.?, .gte, data_field_val)){
-                                        arr[next_arr_ptr] = data;
-                                        next_arr_ptr+=1;
-                                    }
+                                if(!(root.getCompare(data_field_type, root.container_compare_fn_name, range_value.min, .lte, data_field_val) and 
+                                    root.getCompare(data_field_type, root.container_compare_fn_name, range_value.max, .gte, data_field_val))){
+                                    include_data_point = false;
+                                }
                                 }
                             }
                         }else{
@@ -161,13 +160,17 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
                                     data_field_val,
                                     null
                                 )) {
-                                arr[next_arr_ptr] = data;
-                                next_arr_ptr+=1;
+                                include_data_point = false;
                             }
                         }
                     }
                 }
+                if(include_data_point){
+                    arr[next_arr_ptr] = data;
+                    next_arr_ptr+=1;
+                }
             }
+
             arr = gpa.realloc(arr, next_arr_ptr) catch |err| {
                 gpa.free(arr);
                 return err;
