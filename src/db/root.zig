@@ -108,7 +108,7 @@ pub fn determineEqlFn(comptime T: type, a: T, b: T, size: ?usize) bool {
             return std.mem.eql(t_info.array.child, &a, &b);
         },
         else => {
-            std.debug.print("{any} == {any} => {}\n", .{a, b, std.meta.eql(a, b)});
+            // std.debug.print("{any} == {any} => {}\n", .{a, b, std.meta.eql(a, b)});
             return std.meta.eql(a, b); // Catch everything else
         }
     }
