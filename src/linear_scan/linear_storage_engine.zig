@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const storageEngine = @import("Database").StorageEngine;
+const Databases = @import("Database");
+const storageEngine = Databases.StorageEngine;
+
 const path_utils = @import("./path_funcs.zig");
 
 const fill_character: u8 = 0;
@@ -132,7 +134,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             return;
         }
 
-        pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference) {
+        pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference, Databases.getCompareableFieldNames(DataType, Databases.container_compare_fn_name)) {
             return .{ .ptr = lse, .vtable = &.{
                 .store = store,
                 .retrieve = retrieve,

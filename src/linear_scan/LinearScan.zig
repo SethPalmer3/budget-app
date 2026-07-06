@@ -80,9 +80,9 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
             return try lse.lin_indexer.indexer().LookUpData(gpa, index, lse.lin_se);
         }
 
-        pub fn database(lse: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, Self.ReferenceType, Key) {
+        pub fn database(ldb: *Self, gpa: std.mem.Allocator) Database.Database(RecorcType, Self.ReferenceType, Key) {
             return Database.Database(RecorcType, Self.ReferenceType, Key).init(
-                gpa, lse.lin_indexer.indexer(), lse.lin_se.storage_engine()
+                gpa, ldb.lin_indexer.indexer(), ldb.lin_se.storage_engine()
             );
         }
     };

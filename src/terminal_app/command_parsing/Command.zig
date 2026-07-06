@@ -74,7 +74,7 @@ pub fn getNthArgAfterOption(self: *Command, opt: Option, ind: usize) !*const Arg
     for (self.fragments, 0..) |fragment, i| {
         if (i >= self.size) {break;}
         if(found_opt){
-            if (fragment != .Arg) {continue;}
+            if (fragment != .Arg) {return CommandError.CannotFindFragment;} // Broken continuous argument
 
             arg_ind -= 1;
             if(arg_ind == 0){

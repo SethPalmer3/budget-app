@@ -1,5 +1,6 @@
 const std = @import("std");
 const Database = @import("Database");
+const QueryParam = Database.StorageEngine.QueryParam;
 const DBType = Database.Database.Database;
 const TermCommands = @import("../term_commands.zig");
 const cmdManager = @import("../command_manager.zig");
@@ -16,6 +17,7 @@ const Date = Domain.Date;
 pub const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
 
 const LIST_COMMAND_NAME = "LIST";
+const string_conversion_name = "convertStr";
 
 pub fn contextPackage(
     comptime DataType: type,
@@ -29,6 +31,15 @@ pub fn contextPackage(
     };
 }
 
+inline fn isRangedField(comptime ranged_fields: []const []const u8, field_name: []const u8) bool{
+    for (ranged_fields) |range_field_name| {
+        if(std.mem.eql(u8, range_field_name, field_name)){
+            return true;
+        }
+    }
+    return false;
+}
+
 pub fn generateHandleList(
     comptime DataType: type,
     comptime RefType: type,
@@ -36,58 +47,6 @@ pub fn generateHandleList(
     comptime conversion_fn_name: []const u8,
 )*const fn(*CommandParse.Command, *std.Io.Reader, *std.Io.Writer, *anyopaque) cmdManager.CommandState{
     return struct{
-        fn collectItemsFromParser(parsed: *CommandParse.Command, next_argument: u64, db: *DBType(DataType, RefType, IndexKey), writer: *std.Io.Writer) ![]const DataType {
-            var next_arg = next_argument;
-            const index_key_type = Database.Database.convertIndexKeyIntoType(DataType, IndexKey);
-            const convertStr: *const fn([]const u8) ?index_key_type = 
-                fetchConvertStrFn(?index_key_type, index_key_type, conversion_fn_name);
-            //------------ Getting Range ----------------
-            const start_index_str = 
-                (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
-            next_arg += 1;
-            const end_index_str: ?[]const u8 = blk: {
-                if(parsed.num_options > 2){
-                    break :blk (parsed.getNthArg(next_arg) catch |err| {return err;}).name;
-                }else{
-                    break :blk null;
-                }
-            };
-            next_arg += 1;
-
-            const start_index = 
-                Database.Database.convertStringToIndexValue(
-                    DataType, IndexKey, start_index_str, convertStr
-                ) orelse {
-                    writer.print(
-                        "Could not convert the index \"{s}\" correctly\n",
-                        .{start_index_str},
-                    ) catch {};
-                    return error.CouldNotConvertArgument;
-                }; 
-            const end_index: ?index_key_type = blk: {
-                if (end_index_str) |end_index_str_noop| {
-                    break :blk Database.Database.convertStringToIndexValue(
-                        DataType, IndexKey, end_index_str_noop, convertStr
-                    ) orelse {
-                        writer.print(
-                            "Could not convert the index \"{s}\" correctly\n",
-                            .{end_index_str},
-                        ) catch {};
-                        return error.CouldNotConvertArgument;
-                    };
-                }else{break :blk null;}
-            };
-
-            return db.GetEntriesByIndex(
-                .{.start_index = start_index, .end_index = end_index}
-            ) catch |err| {
-                writer.print(
-                    "({s})Could not get entries with the indexes {s} and {s}\n",
-                    .{@errorName(err), start_index_str, end_index_str},
-                ) catch {};
-                return err;
-            };
-        }
         pub fn execute(
             parsed: *CommandParse.Command,
             reader: *std.Io.Reader,
@@ -99,24 +58,23 @@ pub fn generateHandleList(
             var db = cntxt.db;
             var next_arg: u64 = 1;
             const min_num_args = 2;
+
+            const ranged_list: []const []const u8 = 
+                comptime Database.getCompareableFieldNames(DataType, Database.container_compare_fn_name);
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
-                writer.print("LIST [--field FILED NAME]\n", .{})catch{};
+                writer.print("LIST [--field <VALUE> [MAX VALUE]...]\n", .{})catch{};
                 writer.print("Avaliable fields:\n", .{})catch{};
                 const data_info = @typeInfo(DataType);
                 inline for (data_info.@"struct".fields) |field| {
-                    writer.print("--{s}\n", .{field.name}) catch {};
+                    if(isRangedField(ranged_list, field.name)){
+                        writer.print("--{s}(can have a range)\n", .{field.name}) catch {};
+                    }else{
+                        writer.print("--{s}\n", .{field.name}) catch {};
+                    }
                 }
                 return cmdManager.CommandState.Continue;
-            }else |_|{
-                // _ = err;
-                // switch (err) {
-                //     CommandParse.Command.CommandError.CannotFindFragment => {
-                //         writer.print("Unknown Option given\n", .{})catch{};
-                //     },
-                //     else => {}
-                // }
-            }
+            }else |_|{}
             //------------ Checking Command -------------------
             _ = parsed.getNthArg(next_arg) catch {return cmdManager.CommandState.ErrorContinue;};
             next_arg += 1;
@@ -127,25 +85,74 @@ pub fn generateHandleList(
                 ) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             }
-            //------------ Getting Data -------------------
-            var query: Database.StorageEngine.StorageEngine(DataType, RefType).QueryType = .{};
-            const record_info = @typeInfo(DataType); // Might need to check if this is not a struct
-            const record_fields = record_info.@"struct".fields;
-            inline for (record_fields) |field| {
+            //------------ Setting up Query Data -------------------
+            var query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = .{};
+
+            const data_info = @typeInfo(DataType); // Might need to check if this is not a struct
+            inline for (data_info.@"struct".fields) |data_field| {
                 iter_block: {
-                    const option =
-                        parsed.getOption(
-                            .{.long_form = field.name, .short_form = field.name[0], .has_short_form = false}
-                        ) catch {break :iter_block;};
+                    const option = // Fetch option with field name
+                        parsed.getOption(.{
+                            .long_form = data_field.name,
+                            .short_form = data_field.name[0],
+                            .has_short_form = false
+                        }) catch {break :iter_block;};
+
+                    // Get first argument
                     const opt_arg = parsed.getNthArgAfterOption(option.*, 1) catch |err| {
                         writer.print("({s})Could not find argument\n", .{@errorName(err)}) catch {};
                         return cmdManager.CommandState.ErrorContinue;
                     };
-                    const convert_arg = fetchConvertStrFn(?@FieldType(DataType, field.name), @FieldType(DataType, field.name), "convertStr")(opt_arg.name);
-                    @field(query, field.name) = convert_arg;
+                    // Get possible second value
+                    const opt_arg_max: ?*const CommandParse.Argument =
+                        parsed.getNthArgAfterOption(option.*, 2) catch null;
+
+                    const conversion_fn = // conversion function for both arguments
+                        fetchConvertStrFn(?data_field.type, data_field.type, conversion_fn_name);
+
+                    // Convert first arguement to its associated field type
+                    const convert_arg =
+                        conversion_fn(opt_arg.name);
+                    // Convert optional second argument to the same field type
+                    const convert_arg_max = 
+                        if(opt_arg_max) |max_opt_arg| conversion_fn(max_opt_arg.name) else null;
+
+                    // Populate the corresponding query field with the 
+                    // appropriate value
+                    @field(query, data_field.name) = blk: {
+                        const is_range: bool = comptime is_range_blk: {
+                            var ranged = false;
+                            for (ranged_list) |field_name| {
+                                if(std.mem.eql(u8, field_name, data_field.name)){
+                                    ranged = true;
+                                }
+                            }
+                            break :is_range_blk ranged;
+                        };
+                        // Check if the type of the query field is a query parameter
+                        // with the child type being the data type field
+                        if(is_range){
+                            // If optional second argument exists
+                            if(convert_arg_max) |arg_max| {
+                                // send a query parameter of an `range` tag
+                                break :blk QueryParam(@TypeOf(convert_arg)){
+                                    .range = .{
+                                        .max = arg_max,
+                                        .min = convert_arg 
+                                    }
+                                };
+                            }else{
+                                // else use the `exact` tag
+                                break :blk QueryParam(@TypeOf(convert_arg)){.exact = convert_arg};
+                            }
+                        }else{
+                            break :blk convert_arg;
+                        }
+                    };
                 }
             }
-            // std.debug.print("Query: {any}\n", .{query});
+
+            //------------ Query Execution -------------------
             const items = db.storage_engine.Query(db.alloc, query) catch |err| {
                 writer.print("({s}) Could not fetch the query correctly\n", .{@errorName(err)}) catch {};
                 return cmdManager.CommandState.ErrorContinue;
@@ -156,7 +163,6 @@ pub fn generateHandleList(
             writer.print("----------------------------\n", .{}) catch {};
             for (items) |*item| {
                 cntxt.displayData(item, writer);
-                // std.debug.print("{any}\n", .{item.*});
                 writer.print("----------------------------\n", .{}) catch {};
             }
             // writer.print("\n", .{}) catch {};

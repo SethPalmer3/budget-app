@@ -12,7 +12,7 @@ pub fn order(self: *const Self, other: *const Self) std.math.Order{
     if(self.eql(other)) {return .eq;}
 }
 
-pub fn compFn(self: Self, op: std.math.CompareOperator, other: Self) bool {
+pub fn compare(self: Self, op: std.math.CompareOperator, other: Self) bool {
     return switch (op) {
         .eq => self.eql(&other),
         .gt => self.gt(&other),

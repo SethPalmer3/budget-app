@@ -1,6 +1,7 @@
 const std = @import("std");
 const Indexer = @import("indexer.zig");
 const StorageEngine = @import("storage_engine.zig");
+const root = @import("root.zig");
 
 pub const DBError = error{
     CannotInitalize,
@@ -9,50 +10,11 @@ pub const DBError = error{
     NullIndexWithNonInferedDB,
 };
 
-/// Convert the pased string into its respective
-/// index value using a conversion function
-pub fn convertStringToIndexValue(
-    comptime Datatype: type,
-    comptime Key: []const u8,
-    index_str: []const u8,
-    convertStr: *const fn([]const u8) ?@FieldType(Datatype, Key)
-) ?@FieldType(Datatype, Key) {
-    return convertStr(index_str);
-}
-
-pub fn convertIndexKeyIntoType(
-    comptime Datatype: type, 
-    comptime IndexKey: anytype,
-) type {
-    const i_type = @TypeOf(IndexKey);
-    if(i_type == type){
-        return IndexKey;
-    }
-    const i_info = @typeInfo(i_type);
-    if(i_info != .pointer){
-        @compileError(
-            "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
-    }
-    const child_info = @typeInfo(i_info.pointer.child);
-    if((i_info.pointer.size == .one and child_info == .array) or 
-        (i_info.pointer.size == .slice and i_info.pointer.child == u8)
-    ){
-        const converted_str: []const u8 = IndexKey;
-        if(!@hasField(Datatype, converted_str)){
-            @compileError("Keys must be a field in the data type \'D\'");
-        }
-        // const inferred_type = @FieldType(Datatype, IndexKey);
-        return @FieldType(Datatype, converted_str);
-    }
-    @compileError(
-        "The index type must be a type or a string of a field in the data type, got " ++ @typeName(i_type));
-}
-
 pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
     return struct{
         pub const DataType = D;
         pub const ReferenceType = R;
-        pub const IndexType = convertIndexKeyIntoType(DataType, I);
+        pub const IndexType = root.convertIndexKeyIntoType(DataType, I);
         const Infered: bool = blk:{
             const i_type = @TypeOf(I);
             const i_info = @typeInfo(i_type);
@@ -61,7 +23,13 @@ pub fn Database(comptime D: type, comptime R: type, comptime I: anytype) type {
             }
             break :blk false;
         };
-        const StorageEngineType = StorageEngine.StorageEngine(D, R);
+        const range_field_names = root.getCompareableFieldNames(D, root.container_compare_fn_name);
+        const StorageEngineType =
+            StorageEngine.StorageEngine(
+                D,
+                R,
+                range_field_names
+            );
         const IndexerType = Indexer.Indexer(IndexType, R);
         const Self = @This();
 

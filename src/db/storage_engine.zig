@@ -1,4 +1,5 @@
 const std = @import("std");
+const root = @import("root.zig");
 
 pub const SEError = error{
     CannotStoreData,
@@ -6,47 +7,30 @@ pub const SEError = error{
     DataDeleted,
 };
 
-fn determineCompareFn(comptime T: type, a: T, b: T, size: ?usize) bool {
-    const t_info = @typeInfo(T);
-    switch(t_info) { // Handle array like types
-        .pointer => switch (t_info.pointer.size) {
-            .slice => {
-                if(size) |length| {
-                    return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
-                }
-                return std.mem.eql(t_info.pointer.child, a, b);
-            },
-            .many => {
-                const aSlice = a[0..size];
-                const bSlice = b[0..size];
-                return std.mem.eql(t_info.pointer.child, aSlice, bSlice);
-            },
-            .c, .one => {
-                return std.meta.eql(a.*, b.*); // Following the pointer
-            }
-        },
-        .array => {
-            if(size) |length| {
-                return std.mem.eql(t_info.array.child, a[0..length], b[0..length]);
-            }
-            std.debug.print("a length: {d}, b length: {d}\n", .{a.len, b.len});
-            return std.mem.eql(t_info.array.child, &a, &b);
-        },
-        else => {
-            return std.meta.eql(a, b); // Catch everything else
-        }
-    }
-    return false; // Fall back value, I don't think this can be actually reached
+
+pub fn Range(comptime T: type) type {
+    return struct {
+        min: T = null,
+        max: T = null,
+    };
+}
+
+pub fn QueryParam(comptime T: type) type {
+    return union (enum) {
+        exact: T,
+        range: Range(T),
+    };
 }
 
 /// Generic storage engine type to store a predetermined data type
 /// and will return a kind of value that represents a kind of
 /// reference to that data to be retrieved quickly again
-pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
+pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime ranged_params: []const []const u8) type {
     return struct {
         const Self = @This();
         pub const QueryType: type = blk: {
             const data_info = @typeInfo(DataType);
+
             if (data_info != .@"struct") {
                 @compileError(
                     "The data type must be a struct got " ++ @typeName(DataType) ++ " instead."
@@ -58,7 +42,16 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
             var new_field_attr: [original_fields.len]std.builtin.Type.StructField.Attributes = undefined;
             for (original_fields, 0..) |o_field, i| {
                 const field_type = @typeInfo(o_field.type);
-                const optType = if(field_type == .optional) o_field.type else ?o_field.type;
+                var is_range: bool = false;
+                for (ranged_params) |range_param| {
+                    if(std.mem.eql(u8, range_param, o_field.name)) {
+                        is_range = true;
+                        break;
+                    }
+                }
+                const base_type = if(field_type == .optional) o_field.type else ?o_field.type;
+
+                const optType = if(is_range) ?QueryParam(base_type) else base_type;
 
                 const default_ptr: *const anyopaque = def_blk: {
                     const default_val: optType = null;
@@ -116,27 +109,64 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type) type {
         pub fn Query(se: *Self, gpa: std.mem.Allocator, query: QueryType) ![]const DataType{
             var arr = try gpa.alloc(DataType, se.vtable.valid_references(se.ptr).len);
             var next_arr_ptr: u64 = 0;
-            loop: for(se.vtable.valid_references(se.ptr)) |reference| {
+            for(se.vtable.valid_references(se.ptr)) |reference| {
                 const data = se.vtable.retrieve(se.ptr, reference) catch |err| {
                     gpa.free(arr);
                     return err;
                 };
                 const query_info = @typeInfo(QueryType);
                 inline for(query_info.@"struct".fields) |field| {
-                    if(@field(query, field.name)) |field_value| { // Non-null value
-                        if (
-                            !determineCompareFn(
-                                @TypeOf(field_value),
-                                field_value,
-                                @field(data, field.name),
-                                null
-                            )) {
-                            continue :loop; // Skipping as some field doesn't match
+                    if(@field(query, field.name)) |query_field_value| { // Non-null value
+                        const is_range_field = comptime blk: {
+                            var is_range = false;
+                            for(ranged_params) |range_param| {
+                                if(std.mem.eql(u8, range_param, field.name)){ // Is a rangeable field
+                                    is_range = true;
+                                }
+                            }
+                            break :blk is_range;
+                        };
+
+                        const data_field_val = @field(data, field.name);
+                        const data_field_type = @TypeOf(data_field_val);
+
+                        if(is_range_field){
+                            //switch on the QueryParam
+                            switch(query_field_value){
+                                .exact => |exact_value| {
+                                    if (
+                                        root.determineEqlFn(
+                                            @TypeOf(exact_value),
+                                            exact_value,
+                                            data_field_val,
+                                            null
+                                        )) {
+                                        arr[next_arr_ptr] = data;
+                                        next_arr_ptr+=1;
+                                    }
+                                },
+                                .range => |range_value| {
+                                    if(root.getCompare(data_field_type, root.container_compare_fn_name, range_value.min.?, .lte, data_field_val) and 
+                                        root.getCompare(data_field_type, root.container_compare_fn_name, range_value.max.?, .gte, data_field_val)){
+                                        arr[next_arr_ptr] = data;
+                                        next_arr_ptr+=1;
+                                    }
+                                }
+                            }
+                        }else{
+                            if (
+                                !root.determineEqlFn(
+                                    @TypeOf(query_field_value),
+                                    query_field_value,
+                                    data_field_val,
+                                    null
+                                )) {
+                                arr[next_arr_ptr] = data;
+                                next_arr_ptr+=1;
+                            }
                         }
                     }
                 }
-                arr[next_arr_ptr] = data;
-                next_arr_ptr+=1;
             }
             arr = gpa.realloc(arr, next_arr_ptr) catch |err| {
                 gpa.free(arr);
