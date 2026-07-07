@@ -2,6 +2,7 @@ const std = @import("std");
 pub const Database = @import("database.zig");
 pub const Indexer = @import("indexer.zig");
 pub const StorageEngine = @import("storage_engine.zig");
+pub const Query = @import("query.zig");
 
 pub const container_compare_fn_name = "compare";
 

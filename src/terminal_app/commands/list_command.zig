@@ -1,6 +1,6 @@
 const std = @import("std");
 const Database = @import("Database");
-const QueryParam = Database.StorageEngine.QueryParam;
+const QueryParam = Database.Query.QueryParam;
 const DBType = Database.Database.Database;
 const TermCommands = @import("../term_commands.zig");
 const cmdManager = @import("../command_manager.zig");
