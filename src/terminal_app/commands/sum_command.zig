@@ -15,9 +15,10 @@ const recordCategory = Domain.RecordCategory;
 const Date = Domain.Date;
 
 pub const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
+pub const extractQueryFromCommand = @import("../extract_query_specifiers.zig").extractQueryFromCommand;
 
-const LIST_COMMAND_NAME = "LIST";
-const string_conversion_name = "convertStr";
+const LIST_COMMAND_NAME = "SUM";
+const sum_on_field_name = "field";
 
 pub fn contextPackage(
     comptime DataType: type,
@@ -30,7 +31,6 @@ pub fn contextPackage(
         displayData: *const fn(*const DataType, *std.Io.Writer) void,
     };
 }
-
 
 pub fn generateHandleList(
     comptime DataType: type,
@@ -50,19 +50,18 @@ pub fn generateHandleList(
             var db = cntxt.db;
             var next_arg: u64 = 1;
             const min_num_args = 2;
+            const data_info = @typeInfo(DataType);
 
             const ranged_list: []const []const u8 = 
                 comptime Database.getCompareableFieldNames(DataType, Database.container_compare_fn_name);
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
-                writer.print("LIST [--field <VALUE> [MAX VALUE]...]\n", .{})catch{};
+                writer.print("SUM --{s} FIELD [--field <VALUE> [MAX VALUE]...]\n", .{sum_on_field_name})catch{};
                 writer.print("Avaliable fields:\n", .{})catch{};
-                const data_info = @typeInfo(DataType);
+                // const data_info = @typeInfo(DataType);
                 inline for (data_info.@"struct".fields) |field| {
-                    if(Database.isRangedField(ranged_list, field.name)){
-                        writer.print("--{s}(can have a range)\n", .{field.name}) catch {};
-                    }else{
-                        writer.print("--{s}\n", .{field.name}) catch {};
+                    if(@typeInfo(field.type) == .int){
+                        writer.print(" - {s}\n", .{field.name}) catch {};
                     }
                 }
                 return cmdManager.CommandState.Continue;
@@ -77,82 +76,10 @@ pub fn generateHandleList(
                 ) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             }
-            //------------ Setting up Query Data -------------------
-            var query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = .{};
-
-            const data_info = @typeInfo(DataType); // Might need to check if this is not a struct
-            inline for (data_info.@"struct".fields) |data_field| {
-                iter_block: {
-                    const option = // Fetch option with field name
-                        parsed.getOption(.{
-                            .long_form = data_field.name,
-                            .short_form = data_field.name[0],
-                            .has_short_form = false
-                        }) catch {break :iter_block;};
-
-                    // Get first argument
-                    const opt_arg = parsed.getNthArgAfterOption(option.*, 1) catch |err| {
-                        writer.print("({s})Could not find argument\n", .{@errorName(err)}) catch {};
-                        return cmdManager.CommandState.ErrorContinue;
-                    };
-                    // Get possible second value
-                    const opt_arg_max: ?*const CommandParse.Argument =
-                        parsed.getNthArgAfterOption(option.*, 2) catch null;
-
-                    // Check if given a second arguement even with a non-ranged field
-                    if(opt_arg_max != null and !Database.isRangedField(ranged_list, data_field.name)) {
-                        writer.print("Field '{s}' does not accept ranges\n", .{data_field.name}) catch {};
-                        return cmdManager.CommandState.ErrorContinue;
-                    }
-
-                    const conversion_fn = // conversion function for both arguments
-                        fetchConvertStrFn(?data_field.type, data_field.type, conversion_fn_name);
-
-                    // Convert first arguement to its associated field type
-                    const convert_arg =
-                        conversion_fn(opt_arg.name) orelse {
-                            writer.print("Could not convert '{s}' properly\n", .{opt_arg.name}) catch {};
-                            return cmdManager.CommandState.ErrorContinue;
-                    };
-                    // std.debug.print("converted_arg: {any}\n", .{convert_arg});
-                    // Convert optional second argument to the same field type
-                    const convert_arg_max = 
-                        if(opt_arg_max) |max_opt_arg| conversion_fn(max_opt_arg.name) else null;
-
-                    // Populate the corresponding query field with the 
-                    // appropriate value
-                    @field(query, data_field.name) = blk: {
-                        const is_range: bool = comptime is_range_blk: {
-                            var ranged = false;
-                            for (ranged_list) |field_name| {
-                                if(std.mem.eql(u8, field_name, data_field.name)){
-                                    ranged = true;
-                                }
-                            }
-                            break :is_range_blk ranged;
-                        };
-                        // Check if the type of the query field is a query parameter
-                        // with the child type being the data type field
-                        if(is_range){
-                            // If optional second argument exists
-                            if(convert_arg_max) |arg_max| {
-                                // send a query parameter of an `range` tag
-                                break :blk QueryParam(@TypeOf(convert_arg)){
-                                    .range = .{
-                                        .max = arg_max,
-                                        .min = convert_arg 
-                                    }
-                                };
-                            }else{
-                                // else use the `exact` tag
-                                break :blk QueryParam(@TypeOf(convert_arg)){.exact = convert_arg};
-                            }
-                        }else{
-                            break :blk convert_arg;
-                        }
-                    };
-                }
-            }
+            //------------ Fetching Query Data -------------------
+            const query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType  = extractQueryFromCommand(DataType, RefType, ranged_list, conversion_fn_name, parsed, writer) catch {
+                return cmdManager.CommandState.ErrorContinue;
+            };
             // std.debug.print("query: {any}\n", .{query});
 
             //------------ Query Execution -------------------
@@ -163,25 +90,40 @@ pub fn generateHandleList(
             defer db.alloc.free(items);
 
             //------------ Preform Sum operation -------------------
-            if(parsed.getOption(.{.long_form = "sum", .short_form = 's', .has_short_form = false})) |_|{
-                const data_info = @typeInfo(DataType);
-                inline for (data_info.@"struct".fields) |field| {
-                    if(Database.isRangedField(ranged_list, field.name)){
-                        writer.print("--{s}(can have a range)\n", .{field.name}) catch {};
-                    }else{
-                        writer.print("--{s}\n", .{field.name}) catch {};
-                    }
+            const sum_option: CommandParse.Option =
+                .{.long_form = sum_on_field_name, .short_form = 'f', .has_short_form = false};
+            var sum: u64 = 0;
+            if(parsed.getOption(sum_option)) |_|{
+                const field_to_sum = parsed.getNthArgAfterOption(sum_option, 1) catch {
+                    writer.print("Please give the sum option a field to sum on\n", .{}) catch {};
+                    return cmdManager.CommandState.ErrorContinue;
+                };
+
+                for(items) |*item| {
+                    const field_value: u64 = blk: {
+                        inline for (data_info.@"struct".fields) |field| {
+                            if(std.mem.eql(u8, field.name, field_to_sum.name)){
+                               const field_val = @field(item.*, field.name);
+                               if(@typeInfo(@TypeOf(field_val)) != .int){
+                                    writer.print("The field '{s}' needs to be a int type, got '{s}' instead\n", .{field_to_sum.name, @typeName(@TypeOf(field_val))}) catch {};
+                                    return cmdManager.CommandState.ErrorContinue;
+                               }
+                                break :blk @field(item.*, field.name);
+                            }
+                        }
+                        writer.print("Could not find a field with name '{s}' in '{s}'\n", .{field_to_sum.name, @typeName(DataType)}) catch {};
+                        return cmdManager.CommandState.ErrorContinue;
+                    };
+                    sum += @as(u64, field_value);
                 }
-                return cmdManager.CommandState.Continue;
-            }else |_|{}
+
+            }else |_|{
+                writer.print("Please specify a sum option with which field to sum\n", .{}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            }
 
             //------------ Printing Data -------------------
-            writer.print("----------------------------\n", .{}) catch {};
-            for (items) |*item| {
-                cntxt.displayData(item, writer);
-                writer.print("----------------------------\n", .{}) catch {};
-            }
-            // writer.print("\n", .{}) catch {};
+            writer.print("Sum: {d}\n", .{sum}) catch {};
             return cmdManager.CommandState.Continue;
         }
     }.execute;

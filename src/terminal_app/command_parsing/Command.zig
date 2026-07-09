@@ -51,7 +51,7 @@ pub fn addOption(self: *Command, opt: Option, alloc: Allocator) anyerror!void {
     self.num_options += 1;
 }
 
-pub fn getOption(self: *Command, opt: Option) !*const Option {
+pub fn getOption(self: *const Command, opt: Option) !*const Option {
     if (self.num_options == 0) {return CommandError.NoOptions;}
     for (self.fragments, 0..) |fragment, i| {
         if (i >= self.size) {break;}
@@ -67,7 +67,11 @@ pub fn getOption(self: *Command, opt: Option) !*const Option {
     return CommandError.CannotFindFragment;
 }
 
-pub fn getNthArgAfterOption(self: *Command, opt: Option, ind: usize) !*const Argument {
+/// Get the nth arguement after a specified option
+/// If it cannot find that option, or if another
+/// option appears before reaching the desired number
+/// of arguments it will throw an error.
+pub fn getNthArgAfterOption(self: *const Command, opt: Option, ind: usize) !*const Argument {
     var arg_ind = ind;
     var opt_pos: usize = 0; // <-- 0 should always be a argument so used as an invalid value
     var found_opt = false;
