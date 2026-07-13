@@ -13,6 +13,7 @@ pub const ParseError = error{
 
 pub fn parse(input: []const u8, alloc: Allocator) !Command {
     var cmd = try Command.init(alloc);
+    cmd.raw_string = input;
     var it = std.mem.splitAny(u8, input, " ");
     var i: u64 = 0;
     var opt_pos: usize = 0; // To differentiate Arguments and Options

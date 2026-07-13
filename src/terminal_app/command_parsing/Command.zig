@@ -15,6 +15,7 @@ pub const CommandFragment = union(enum) {
     Opt: Option,
 };
 
+raw_string: []const u8,
 fragments: []CommandFragment,
 size: u64 = 0,
 num_options: u64 = 0,
@@ -24,6 +25,7 @@ num_arguments: u64 = 0,
 pub fn init(alloc: Allocator) anyerror!Command {
     return .{
         .fragments = try alloc.alloc(CommandFragment, 1),
+        .raw_string = undefined,
     };
 }
 
