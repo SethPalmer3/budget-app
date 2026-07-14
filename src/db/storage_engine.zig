@@ -50,7 +50,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
         }
 
 
-        pub fn Query(se: *Self, gpa: std.mem.Allocator, query_term: QueryType) ![]const DataType{
+        pub fn Query(se: *Self, gpa: std.mem.Allocator, query_term: ?QueryType) ![]const DataType{
             var arr = try gpa.alloc(DataType, se.vtable.valid_references(se.ptr).len);
             var next_arr_ptr: u64 = 0;
             for(se.vtable.valid_references(se.ptr)) |reference| {

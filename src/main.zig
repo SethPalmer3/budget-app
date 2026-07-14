@@ -19,6 +19,7 @@ const index_location = "data/index.ind";
 const MainKey: []const u8 = "date";
 const AddSubCommand = "ADD";
 const ListSubCommand = "LIST";
+const InfoSubCommand = "INFO";
 const SumSubCommand = "SUM";
 const QuitSubCommand = "QUIT";
 const DisplayCMDParserSubCommand = "DISPLAY";
@@ -78,13 +79,22 @@ pub fn main(init: std.process.Init) !void {
         },
         .{
             .name = SumSubCommand,
-            .execute_fn = TerminalCommands.SumCommand.generateHandleList(
+            .execute_fn = TerminalCommands.SumCommand.generateHandleSum(
                 Record,
                 lin_db_type.ReferenceType,
                 MainKey,
                 "convertStr"
             ),
             .execute_context = &list_context,
+        },
+        .{
+            .name = InfoSubCommand,
+            .execute_fn = 
+                TerminalCommands.InfoCommand.generateHandleInfo(
+                    Record, lin_db_type.ReferenceType, MainKey, "convertStr"
+                ),
+            .execute_context =
+                &list_context,
         },
         // TODO: Add a command to show relavent information about the stored data(i.e. totals, expected - actual, e.t.c)
         //      └> specific data included using arguments

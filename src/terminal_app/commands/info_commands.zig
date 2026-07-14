@@ -6,7 +6,6 @@ const cmdManager = @import("../command_manager.zig");
 const Date = @import("Domain").Date;
 const Query = Database.Query;
 
-
 const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
 
 pub fn contextPackage(
@@ -21,7 +20,7 @@ pub fn contextPackage(
     };
 }
 
-pub fn generateHandleList(
+pub fn generateHandleInfo(
     comptime DataType: type,
     comptime RefType: type,
     comptime IndexKey: anytype,
@@ -63,7 +62,7 @@ pub fn generateHandleList(
             var end_date: Date = undefined;
             const item_date_str = parsed.getNthArg(next_arg)catch{return cmdManager.CommandState.ErrorContinue;};
             next_arg += 1;
-            if(Date.convertStr(item_date_str.name)) |date| {
+            if(fetchConvertStrFn(?Date, conversion_fn_name)(item_date_str.name)) |date| {
                 start_date = date;
                 start_date.day = 1;
                 end_date = start_date;
@@ -95,13 +94,13 @@ pub fn generateHandleList(
             };
             defer db.alloc.free(transaction_items);
             const select_datatype_field = "category";
-            const category_info = @typeInfo(@TypeOf(@field(DataType, select_datatype_field)));
+            const category_info = @typeInfo(@FieldType(DataType, select_datatype_field));
             if(category_info != .@"enum") {
                 @compileError("The selected field " ++ select_datatype_field ++ " must be an enum");
             }
-            var budget_total = 0;
+            var budget_total: u64 = 0;
             var category_breakdown_budget: [category_info.@"enum".fields.len]u64 = .{0} ** category_info.@"enum".fields.len;
-            var transaction_total = 0;
+            var transaction_total: u64 = 0;
             var category_breakdown_transaction: [category_info.@"enum".fields.len]u64 = .{0} ** category_info.@"enum".fields.len;
 
             for(budget_items) |budget_item| {
@@ -115,7 +114,27 @@ pub fn generateHandleList(
                 category_breakdown_transaction[cat_index] += @field(transaction_item, "amount");
             }
 
+            const total_percent: u64 = (transaction_total * 10000) / budget_total;
+
             //------------ Printing Data -------------------
+            writer.print("Total: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
+                .{
+                    transaction_total / 100, @rem(transaction_total, 100),
+                    budget_total / 100, @rem(budget_total, 100),
+                    total_percent / 100, @rem(total_percent, 100),
+                }
+            ) catch {};
+            for(0..category_info.@"enum".fields.len) |i| {
+                const category_total_percent: u64 = (category_breakdown_transaction[i] * 10000) / category_breakdown_budget[i] ;
+                writer.print("{s}: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
+                    .{
+                        category_info.@"enum".fields[i].name,
+                        category_breakdown_transaction[i] / 100, @rem(category_breakdown_transaction[i], 100),
+                        category_breakdown_budget[i] / 100, @rem(category_breakdown_budget[i], 100),
+                        category_total_percent / 100, @rem(category_total_percent, 100),
+                    }
+                ) catch {};
+            }
             // writer.print("\n", .{}) catch {};
             return cmdManager.CommandState.Continue;
         }

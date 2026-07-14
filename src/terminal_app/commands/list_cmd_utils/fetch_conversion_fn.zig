@@ -2,9 +2,18 @@ const std = @import("std");
 
 pub fn fetchConvertStrFn(
     comptime returnType: type,
-    comptime index_type: type,
+    // comptime index_type: type,
     comptime conversion_fn_name: []const u8
 ) *const fn ([]const u8) returnType{
+    // const index_info = @typeInfo(index_type);
+    const index_type = blk: {
+        const return_info = @typeInfo(returnType);
+        switch(return_info) {
+            .optional => break :blk return_info.optional.child,
+            else => break :blk returnType,
+        }
+        unreachable;
+    };
     const index_info = @typeInfo(index_type);
     switch (index_info) {
         .int => {

@@ -40,7 +40,7 @@ pub fn extractQueryFromCommand(
             }
 
             const conversion_fn = // conversion function for both arguments
-                fetchConvertStrFn(?data_field.type, data_field.type, conversion_fn_name);
+                fetchConvertStrFn(?data_field.type, conversion_fn_name);
 
             // Convert first arguement to its associated field type
             const convert_arg =

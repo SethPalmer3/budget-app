@@ -20,11 +20,15 @@ pub fn MatchQuery(
     comptime QueryType: type,
     comptime ranged_params: []const []const u8,
     data: *const DataType,
-    query: *const QueryType,
+    query: *const ?QueryType,
 ) bool {
+    if(query.* == null){
+        return true;
+    }
+    const extract_query = query.*.?; // Already checked if null
     const query_info = @typeInfo(QueryType);
     inline for(query_info.@"struct".fields) |field| {
-        if(@field(query, field.name)) |query_field_value| { // Non-null value
+        if(@field(extract_query, field.name)) |query_field_value| { // Non-null value
             const is_range_field = comptime blk: {
                 var is_range = false;
                 for(ranged_params) |range_param| {

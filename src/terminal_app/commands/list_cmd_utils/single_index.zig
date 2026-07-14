@@ -7,7 +7,7 @@ pub fn singleIndex(parsed: *CommandParse.Command, writer: *std.Io.Writer) cmdMan
         (parsed.getNthArg(2) catch {return cmdManager.CommandState.ErrorContinue;}).name;
 
     const convertStr: *const fn([]const u8) ?index_key_type = 
-        fetchConvertStrFn(?index_key_type, index_key_type, "convertStr");
+        fetchConvertStrFn(?index_key_type, "convertStr");
     if(Database.Database.convertStringToIndexValue(DataType, IndexKey, index_str, convertStr)) |conv_index| {
         const items = db.GetEntriesByIndex(conv_index) catch {
             writer.print(

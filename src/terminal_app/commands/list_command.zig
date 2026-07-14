@@ -50,7 +50,7 @@ pub fn generateHandleList(
             const cntxt: *contextPackage(DataType, RefType, IndexKey) = @alignCast(@ptrCast(context));
             var db = cntxt.db;
             var next_arg: u64 = 1;
-            const min_num_args = 2;
+            const min_num_args = 1;
 
             const ranged_list: []const []const u8 = 
                 comptime Database.getCompareableFieldNames(DataType, Database.container_compare_fn_name);
@@ -79,8 +79,14 @@ pub fn generateHandleList(
                 return cmdManager.CommandState.ErrorContinue;
             }
             //------------ Setting up Query Data -------------------
-            const query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = extractQueryFromCommand(DataType, RefType, ranged_list, conversion_fn_name, parsed, writer) catch {
-                return cmdManager.CommandState.ErrorContinue;
+            const query: ?Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = 
+                blk:{
+                    if(parsed.num_arguments == 1){
+                        break :blk null;
+                    }
+                    break :blk extractQueryFromCommand(DataType, RefType, ranged_list, conversion_fn_name, parsed, writer) catch {
+                    return cmdManager.CommandState.ErrorContinue;
+                };
             };
 
             // std.debug.print("query: {any}\n", .{query});

@@ -32,7 +32,7 @@ pub fn contextPackage(
     };
 }
 
-pub fn generateHandleList(
+pub fn generateHandleSum(
     comptime DataType: type,
     comptime RefType: type,
     comptime IndexKey: anytype,
