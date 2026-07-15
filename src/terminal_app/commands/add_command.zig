@@ -53,7 +53,7 @@ pub fn generateHandleAdd(
                     }
                 }else |_|{
                     write_out.print("ADD TYPE DAY/MONTH/YEAR NAME CATEGORY AMOUNT DESC\n", .{})catch{};
-                    write_out.print("ADD --help [TYPE|CATEGORY]n", .{})catch{};
+                    write_out.print("ADD --help [TYPE|CATEGORY]\n", .{})catch{};
                 }
                 return cmdManager.CommandState.Continue;
             }else |err|{

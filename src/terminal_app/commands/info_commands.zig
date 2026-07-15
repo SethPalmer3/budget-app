@@ -60,7 +60,8 @@ pub fn generateHandleInfo(
 
             var start_date: Date = undefined;
             var end_date: Date = undefined;
-            const item_date_str = parsed.getNthArg(next_arg)catch{return cmdManager.CommandState.ErrorContinue;};
+            const item_date_str =
+                parsed.getNthArg(next_arg)catch{return cmdManager.CommandState.ErrorContinue;};
             next_arg += 1;
             if(fetchConvertStrFn(?Date, conversion_fn_name)(item_date_str.name)) |date| {
                 start_date = date;
@@ -68,7 +69,7 @@ pub fn generateHandleInfo(
                 end_date = start_date;
                 end_date.month += 1;
             }else{
-                _ = writer.print("Could not parse the date correctly\n", .{})catch{return cmdManager.CommandState.ErrorContinue;};
+                _ = writer.print("Could not parse the date, '{s}', correctly\n", .{item_date_str.name})catch{return cmdManager.CommandState.ErrorContinue;};
                 return cmdManager.CommandState.ErrorContinue;
             }
             //------------ Setting up Query Data -------------------
@@ -99,10 +100,12 @@ pub fn generateHandleInfo(
                 @compileError("The selected field " ++ select_datatype_field ++ " must be an enum");
             }
             var budget_total: u64 = 0;
-            var category_breakdown_budget: [category_info.@"enum".fields.len]u64 = .{0} ** category_info.@"enum".fields.len;
+            const num_categories = category_info.@"enum".fields.len;
+            var category_breakdown_budget: [num_categories]u64 = .{0} ** category_info.@"enum".fields.len;
             var transaction_total: u64 = 0;
-            var category_breakdown_transaction: [category_info.@"enum".fields.len]u64 = .{0} ** category_info.@"enum".fields.len;
+            var category_breakdown_transaction: [num_categories]u64 = .{0} ** category_info.@"enum".fields.len;
 
+            // Totals for indiviual categories
             for(budget_items) |budget_item| {
                 budget_total += @field(budget_item, "amount");
                 const cat_index = @intFromEnum(@field(budget_item, select_datatype_field));
@@ -114,17 +117,36 @@ pub fn generateHandleInfo(
                 category_breakdown_transaction[cat_index] += @field(transaction_item, "amount");
             }
 
-            const total_percent: u64 = (transaction_total * 10000) / budget_total;
+            if(budget_total == 0){
+                writer.print("Total: ${d}.{d:0<2} (no budgeting)\n",
+                    .{
+                        transaction_total / 100, @rem(transaction_total, 100),
+                    }
+                ) catch {};
+            }else{
+                const total_percent: u64 = (transaction_total * 10000) / budget_total;
 
-            //------------ Printing Data -------------------
-            writer.print("Total: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
-                .{
-                    transaction_total / 100, @rem(transaction_total, 100),
-                    budget_total / 100, @rem(budget_total, 100),
-                    total_percent / 100, @rem(total_percent, 100),
+                //------------ Printing Data -------------------
+                writer.print("Total: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
+                    .{
+                        transaction_total / 100, @rem(transaction_total, 100),
+                        budget_total / 100, @rem(budget_total, 100),
+                        total_percent / 100, @rem(total_percent, 100),
+                    }
+                ) catch {};
+            }
+
+            for(0..num_categories) |i| {
+                if(category_breakdown_transaction[i] == 0) {continue;}
+                if(category_breakdown_budget[i] == 0){
+                    writer.print("{s}: ${d}.{d:0<2} (not budgeted)\n",
+                        .{
+                            category_info.@"enum".fields[i].name,
+                            category_breakdown_transaction[i] / 100, @rem(category_breakdown_transaction[i], 100),
+                        }
+                    ) catch {};
+                    continue;
                 }
-            ) catch {};
-            for(0..category_info.@"enum".fields.len) |i| {
                 const category_total_percent: u64 = (category_breakdown_transaction[i] * 10000) / category_breakdown_budget[i] ;
                 writer.print("{s}: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
                     .{

@@ -94,7 +94,6 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             }
             lse.valid_refs[lse.valid_refs_size] = stored_ref;
             lse.valid_refs_size += 1;
-            std.debug.print("reference list {any}\n", .{lse.valid_refs[0..lse.valid_refs_size]});
 
             return stored_ref;
         }
