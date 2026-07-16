@@ -7,6 +7,7 @@ pub const QuitCommand = @import("commands/quit_command.zig");
 pub const DebugCommands = @import("commands/debug_commands.zig");
 pub const SumCommand = @import("commands/sum_command.zig");
 pub const InfoCommand = @import("commands/info_commands.zig");
+pub const BudgetCommand = @import("commands/budget_command.zig");
 pub const extractQuerySpecifiers = @import("extract_query_specifiers.zig");
 
 // const name_length = 20;

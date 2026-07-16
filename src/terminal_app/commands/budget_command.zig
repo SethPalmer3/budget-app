@@ -1,12 +1,25 @@
 const std = @import("std");
 const Database = @import("Database");
+const QueryParam = Database.Query.QueryParam;
 const DBType = Database.Database.Database;
-const CommandParse = @import("CommandParse");
-const cmdManager = @import("../command_manager.zig");
-const Date = @import("Domain").Date;
 const Query = Database.Query;
+const TermCommands = @import("../term_commands.zig");
+const cmdManager = @import("../command_manager.zig");
+const returnError = TermCommands.returnError;
+const CLIError = TermCommands.CLIError;
 
-const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
+const CommandParse = @import("CommandParse");
+const Domain = @import("Domain");
+const Record = Domain.Record;
+const recordType = Domain.RecordType;
+const recordCategory = Domain.RecordCategory;
+const Date = Domain.Date;
+
+pub const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
+const extractQueryFromCommand = @import("../extract_query_specifiers.zig").extractQueryFromCommand;
+
+const LIST_COMMAND_NAME = "LIST";
+const string_conversion_name = "convertStr";
 
 pub fn contextPackage(
     comptime DataType: type,
@@ -20,7 +33,8 @@ pub fn contextPackage(
     };
 }
 
-pub fn generateHandleInfo(
+
+pub fn generateHandleBudget(
     comptime DataType: type,
     comptime RefType: type,
     comptime IndexKey: anytype,
@@ -43,7 +57,7 @@ pub fn generateHandleInfo(
                 comptime Database.getCompareableFieldNames(DataType, Database.container_compare_fn_name);
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
-                writer.print("INFO MONTH/YEAR\n", .{})catch{};
+                writer.print("BUDGET MONTH/YEAR\n", .{})catch{};
                 return cmdManager.CommandState.Continue;
             }else |_|{}
             //------------ Checking Command -------------------
@@ -57,7 +71,6 @@ pub fn generateHandleInfo(
                 return cmdManager.CommandState.ErrorContinue;
             }
             //------------ Getting Month to Lookup ------------------
-
             var start_date: Date = undefined;
             var end_date: Date = undefined;
             const item_date_str =
@@ -77,11 +90,6 @@ pub fn generateHandleInfo(
                 .type = .Budget,
                 .date = Query.QueryParam(Date){.range = .{ .min = start_date, .max = end_date }},
             };
-            const transaction_query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = .{
-                .type = .Transaction,
-                .date = Query.QueryParam(Date){.range = .{ .min = start_date, .max = end_date }},
-            };
-            // std.debug.print("query: {any}\n", .{query});
 
             //------------ Query Execution -------------------
             const budget_items = db.storage_engine.Query(db.alloc, budget_query) catch |err| {
@@ -89,75 +97,39 @@ pub fn generateHandleInfo(
                 return cmdManager.CommandState.ErrorContinue;
             };
             defer db.alloc.free(budget_items);
-            const transaction_items = db.storage_engine.Query(db.alloc, transaction_query) catch |err| {
-                writer.print("({s}) Could not fetch the query correctly\n", .{@errorName(err)}) catch {};
-                return cmdManager.CommandState.ErrorContinue;
-            };
-            defer db.alloc.free(transaction_items);
+
             const select_datatype_field = "category";
             const category_info = @typeInfo(@FieldType(DataType, select_datatype_field));
-            if(category_info != .@"enum") {
-                @compileError("The selected field " ++ select_datatype_field ++ " must be an enum");
-            }
+
             var budget_total: u64 = 0;
             const num_categories = category_info.@"enum".fields.len;
-            var category_breakdown_budget: [num_categories]u64 = .{0} ** category_info.@"enum".fields.len;
-            var transaction_total: u64 = 0;
-            var category_breakdown_transaction: [num_categories]u64 = .{0} ** category_info.@"enum".fields.len;
-
-            // Totals for indiviual categories
+            var category_breakdown_budget: [num_categories]u64 = .{0} ** num_categories;
             for(budget_items) |budget_item| {
                 budget_total += @field(budget_item, "amount");
                 const cat_index = @intFromEnum(@field(budget_item, select_datatype_field));
                 category_breakdown_budget[cat_index] += @field(budget_item, "amount");
             }
-            for(transaction_items) |transaction_item| {
-                transaction_total += @field(transaction_item, "amount");
-                const cat_index = @intFromEnum(@field(transaction_item, select_datatype_field));
-                category_breakdown_transaction[cat_index] += @field(transaction_item, "amount");
+            //------------ Printing Data -------------------
+            writer.print("Total Budget: {d}.{d:0<2}\n", .{
+                budget_total / 100,
+                @rem(budget_total, 100),
+            }) catch {};
+            if (budget_total == 0) {
+                return cmdManager.CommandState.Continue;
             }
+            for (0..num_categories) |i| {
+                // Multiply by 10000 because it's 100, for the percentage, * 100 for the fix point
+                const percentage_of_total = (category_breakdown_budget[i] * 10000) / budget_total;
+                writer.print("  {s}: {d}.{d:0<2} (%{d}.{d:0<2})\n", .{
+                    category_info.@"enum".fields[i].name,
+                    category_breakdown_budget[i] / 100, @rem(category_breakdown_budget[i], 100),
+                    percentage_of_total / 100, @rem(percentage_of_total, 100),
 
-            if(budget_total == 0){
-                writer.print("Total: ${d}.{d:0<2} (no budgeting)\n",
-                    .{
-                        transaction_total / 100, @rem(transaction_total, 100),
-                    }
-                ) catch {};
-            }else{
-                const total_percent: u64 = (transaction_total * 10000) / budget_total;
-
-                //------------ Printing Data -------------------
-                writer.print("Total: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
-                    .{
-                        transaction_total / 100, @rem(transaction_total, 100),
-                        budget_total / 100, @rem(budget_total, 100),
-                        total_percent / 100, @rem(total_percent, 100),
-                    }
-                ) catch {};
-            }
-
-            for(0..num_categories) |i| {
-                if(category_breakdown_budget[i] == 0){
-                    writer.print("  {s}: ${d}.{d:0<2} (no budget allocated)\n",
-                        .{
-                            category_info.@"enum".fields[i].name,
-                            category_breakdown_transaction[i] / 100, @rem(category_breakdown_transaction[i], 100),
-                        }
-                    ) catch {};
-                    continue;
-                }
-                const category_total_percent: u64 = (category_breakdown_transaction[i] * 10000) / category_breakdown_budget[i] ;
-                writer.print("  {s}: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2} used)\n",
-                    .{
-                        category_info.@"enum".fields[i].name,
-                        category_breakdown_transaction[i] / 100, @rem(category_breakdown_transaction[i], 100),
-                        category_breakdown_budget[i] / 100, @rem(category_breakdown_budget[i], 100),
-                        category_total_percent / 100, @rem(category_total_percent, 100),
-                    }
-                ) catch {};
+                }) catch {};
             }
             // writer.print("\n", .{}) catch {};
             return cmdManager.CommandState.Continue;
         }
     }.execute;
 }
+
