@@ -20,6 +20,7 @@ const MainKey: []const u8 = "date";
 const AddSubCommand = "ADD";
 const ListSubCommand = "LIST";
 const BudgetSubCommand = "BUDGET";
+const CopySubCommand = "COPY";
 const InfoSubCommand = "INFO";
 const SumSubCommand = "SUM";
 const QuitSubCommand = "QUIT";
@@ -101,6 +102,15 @@ pub fn main(init: std.process.Init) !void {
             .name = BudgetSubCommand,
             .execute_fn = 
                 TerminalCommands.BudgetCommand.generateHandleBudget(
+                    Record, lin_db_type.ReferenceType, MainKey, "convertStr"
+                ),
+            .execute_context =
+                &list_context,
+        },
+        .{
+            .name = CopySubCommand,
+            .execute_fn = 
+                TerminalCommands.CopyCommand.generateHandleCopy(
                     Record, lin_db_type.ReferenceType, MainKey, "convertStr"
                 ),
             .execute_context =

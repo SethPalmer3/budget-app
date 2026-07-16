@@ -129,6 +129,7 @@ pub fn generateHandleAdd(
                 next_desc_position += arg.name.len + 1;
             }else |_|{} // Discard error
             item.desc_size = next_desc_position;
+            //--------------- Store ---------------------
             db.StoreData(.{.data = item}) catch {
                 _ = write_out.print("Could not store item {any}\n", .{item})catch{return cmdManager.CommandState.ErrorContinue;};
                 return cmdManager.CommandState.ErrorContinue;

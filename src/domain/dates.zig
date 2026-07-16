@@ -37,6 +37,8 @@ pub fn eql(self: *const Self, other: *const Self) bool {
     return self.year == other.year and self.month == other.month and self.day == other.day;
 }
 
+/// Converst day/month/year or 
+/// 1/month/year
 pub fn convertStr(s: []const u8) ?Self{
     var it = std.mem.splitAny(u8, s, "/");
     var count: u64 = 0;
