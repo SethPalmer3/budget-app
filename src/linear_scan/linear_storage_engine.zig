@@ -10,6 +10,7 @@ const fill_character: u8 = 0;
 pub const Options = struct {
     io: std.Io,
     heap_file_location: []const u8,
+    ref_file_location: []const u8,
     buff_size: usize = 1024,
     ref_buff_size: usize = 1024,
 };
@@ -227,16 +228,21 @@ test "usage of interface" {
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
 
+    const testType = struct {
+        data: u64,
+
+    };
+
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(testType).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
     defer lse.deinit();
     var generic_storage_engine = lse.storage_engine();
-    const ref = try generic_storage_engine.StoreData(0xaaaa);
+    const ref = try generic_storage_engine.StoreData(.{ .data = 0xaaaa});
 
     const retrieved_item = try generic_storage_engine.RetrieveData(ref);
 
-    try std.testing.expect(std.meta.eql(retrieved_item, 0xaaaa));
+    try std.testing.expect(std.meta.eql(retrieved_item, testType{ .data=0xaaaa }));
 }
 
 test "restore from file" {

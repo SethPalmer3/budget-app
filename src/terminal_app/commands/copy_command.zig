@@ -107,6 +107,8 @@ pub fn generateHandleCopy(
             };
             defer db.alloc.free(budget_items);
             std.debug.print("Have {d} entries\n", .{budget_items.len});
+            std.debug.print("From {any} - {any}\n", .{start_date, end_date});
+
 
             //--------------- Copy Budget ------------------------
             var successful_copy: u64 = 0;
