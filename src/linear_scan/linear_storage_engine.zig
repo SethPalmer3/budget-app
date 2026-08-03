@@ -15,11 +15,29 @@ pub const Options = struct {
     ref_buff_size: usize = 1024,
 };
 
+// heap file layout
+// start_of_unalloc_entries ...entries...
+// ref file layout
+// number_of_entries ...[flag_byte entry data]...
+// flag_byte layout
+// [bits 1..7 unused][bit 0 tomb_stone]
+
 pub fn linearStorageEngine(comptime DataType: type) type {
     return struct {
         const Self = @This();
         pub const Reference = u64;
         const EOF_pos_type = u64;
+
+        pub const storageEntry = struct {
+            size: u64 = @sizeOf(@This()),
+            flags: u8,
+            data: DataType,
+        };
+
+        pub const referenceEntry = struct {
+            flags: u8,
+            reference: u64,
+        };
 
         allocator: Allocator,
         options: Options,
@@ -28,32 +46,34 @@ pub fn linearStorageEngine(comptime DataType: type) type {
         valid_refs: []Reference,
         heap_EOF_pso: Reference = 0,
         heap_file: std.Io.File,
+        ref_file: std.Io.File,
 
         /// Initalize this generic
         /// `pre_alloc` will clear and fill the heap file with space
         /// to be readily able to put data in.
         pub fn init(alloc: Allocator, options: Options) !Self {
-            // std.debug.print("Clearing file: {s}\n", .{options.heap_file_location});
             const buff: []u8 = try alloc.alloc(u8, options.buff_size);
             const heap_file = try path_utils.create_file_abs_or_cwd(options.io, options.heap_file_location, .{ .read = true, .truncate = false });
+            const ref_file = try path_utils.create_file_abs_or_cwd(options.io, options.ref_file_location, .{ .read = true, .truncate = false });
             const heap_file_stat = try heap_file.stat(options.io);
             var EOF_pos: u64 = @sizeOf(EOF_pos_type);
-            var number_of_stored_data: u64 = 0;
+            var number_of_stored_entries: u64 = 0;
+            // Get the end of the file position 
             if(heap_file_stat.size > 0){
-                // std.debug.print("Recovering from file\n", .{});
-                var heap_file_reader = heap_file.reader(options.io, buff);
-                var generic_reader = &heap_file_reader.interface;
+                var ref_file_reader = ref_file.reader(options.io, buff);
+                var generic_reader = &ref_file_reader.interface;
 
-                try heap_file_reader.seekTo(0);
+                try ref_file_reader.seekTo(0);
 
+                // Get the number of stored entries
                 const num_entries_bytes = try generic_reader.readAlloc(alloc, @sizeOf(u64));
                 defer alloc.free(num_entries_bytes);
-                EOF_pos = std.mem.bytesToValue(u64, num_entries_bytes);
-                number_of_stored_data = ((EOF_pos - @sizeOf(EOF_pos_type)) / @sizeOf(DataType));
+                number_of_stored_entries = std.mem.bytesToValue(u64, num_entries_bytes);
+                EOF_pos = heap_file_stat.size;
             }
-            const actual_ref_buff_size = @max(number_of_stored_data, options.ref_buff_size);
+            const actual_ref_buff_size = @max(number_of_stored_entries, options.ref_buff_size);
             const valid_refs: []u64 = try alloc.alloc(u64, actual_ref_buff_size);
-            for (0..number_of_stored_data) |i| {
+            for (0..number_of_stored_entries) |i| {
                 valid_refs[i] = @sizeOf(EOF_pos_type) + (i * @sizeOf(DataType));
             }
 
@@ -61,9 +81,10 @@ pub fn linearStorageEngine(comptime DataType: type) type {
                 .allocator = alloc,
                 .options = options,
                 .buffer = buff,
-                .valid_refs_size = number_of_stored_data,
+                .valid_refs_size = number_of_stored_entries,
                 .valid_refs = valid_refs,
                 .heap_file = heap_file,
+                .ref_file = ref_file,
                 .heap_EOF_pso = EOF_pos
             };
         }
