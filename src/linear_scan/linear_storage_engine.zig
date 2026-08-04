@@ -15,6 +15,17 @@ pub const Options = struct {
     ref_buff_size: usize = 1024,
 };
 
+fn extractValueFromFile(comptime ExtractedType: type, alloc: Allocator, file: std.Io.File, io: std.Io, seekPos: u64, buffer: []u8) !ExtractedType {
+    var file_reader = file.reader(io, buffer);
+    var generic_reader = &file_reader.interface;
+
+    try file_reader.seekTo(seekPos);
+
+    const value_bytes = try generic_reader.readAlloc(alloc, @sizeOf(u64));
+    defer alloc.free(value_bytes);
+    return std.mem.bytesToValue(ExtractedType, value_bytes);
+}
+
 // heap file layout
 // start_of_unalloc_entries ...entries...
 // ref file layout
@@ -24,8 +35,8 @@ pub const Options = struct {
 
 pub fn linearStorageEngine(comptime DataType: type) type {
     return struct {
-        const Self = @This();
         pub const Reference = u64;
+        const Self = @This();
         const EOF_pos_type = u64;
 
         pub const storageEntry = struct {
@@ -35,16 +46,18 @@ pub fn linearStorageEngine(comptime DataType: type) type {
         };
 
         pub const referenceEntry = struct {
-            flags: u8,
-            reference: u64,
+            flags: u8 = 0,
+            reference: Reference,
         };
+
 
         allocator: Allocator,
         options: Options,
         buffer: []u8,
         valid_refs_size: u64,
-        valid_refs: []Reference,
-        heap_EOF_pso: Reference = 0,
+        valid_refs: []referenceEntry,
+        init_ref_size: u64,
+        heap_EOF_pso: u64 = 0,
         heap_file: std.Io.File,
         ref_file: std.Io.File,
 
@@ -60,21 +73,25 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var number_of_stored_entries: u64 = 0;
             // Get the end of the file position 
             if(heap_file_stat.size > 0){
-                var ref_file_reader = ref_file.reader(options.io, buff);
-                var generic_reader = &ref_file_reader.interface;
-
-                try ref_file_reader.seekTo(0);
-
-                // Get the number of stored entries
-                const num_entries_bytes = try generic_reader.readAlloc(alloc, @sizeOf(u64));
-                defer alloc.free(num_entries_bytes);
-                number_of_stored_entries = std.mem.bytesToValue(u64, num_entries_bytes);
-                EOF_pos = heap_file_stat.size;
+                number_of_stored_entries = 
+                    extractValueFromFile(u64, alloc, ref_file, options.io, 0, buff) catch |err| switch (err) {
+                        //TODO: Finish error handling
+                    };
+                    EOF_pos = heap_file_stat.size;
             }
             const actual_ref_buff_size = @max(number_of_stored_entries, options.ref_buff_size);
-            const valid_refs: []u64 = try alloc.alloc(u64, actual_ref_buff_size);
+            const valid_refs: []referenceEntry = try alloc.alloc(referenceEntry, actual_ref_buff_size);
+            // Cache valid refs
             for (0..number_of_stored_entries) |i| {
-                valid_refs[i] = @sizeOf(EOF_pos_type) + (i * @sizeOf(DataType));
+                valid_refs[i] = 
+                    try extractValueFromFile(
+                            referenceEntry,
+                            alloc,
+                            ref_file,
+                            options.io,
+                            @as(u64, @sizeOf(u64) + (i * @sizeOf(referenceEntry))),
+                            buff
+                        );
             }
 
             return .{ 
@@ -85,11 +102,27 @@ pub fn linearStorageEngine(comptime DataType: type) type {
                 .valid_refs = valid_refs,
                 .heap_file = heap_file,
                 .ref_file = ref_file,
-                .heap_EOF_pso = EOF_pos
+                .heap_EOF_pso = EOF_pos,
+                .init_ref_size = number_of_stored_entries,
             };
         }
 
         pub fn deinit(lse: *Self) void {
+            var ref_file_wrter = lse.ref_file.writer(lse.options.io, lse.buffer);
+            var ref_gen_writer = &ref_file_wrter.interface;
+
+            for(lse.init_ref_size..lse.valid_refs_size) |i| {
+                _ = ref_gen_writer.write(&std.mem.toBytes(lse.valid_refs[i])) catch {
+                    std.debug.print("[CLOSING] Could not write reference sites\n", .{});
+                }; // Ignoring errors for now
+            }
+
+            ref_file_wrter.seekTo(0) catch {std.debug.print("Could not seek to beginning of ref file\n", .{});};
+
+            _ = ref_gen_writer.write(&std.mem.toBytes(lse.valid_refs_size)) catch {
+                std.debug.print("Could not write number of valid entries correctly\n", .{});
+            };
+
             lse.allocator.free(lse.buffer);
             lse.allocator.free(lse.valid_refs);
             lse.heap_file.close(lse.options.io);
@@ -101,15 +134,17 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             const heap_file = lse.heap_file;
 
             var heap_file_writer = heap_file.writer(io, lse.buffer);
-            var generic_writer = &heap_file_writer.interface;
+            var heap_gen_writer = &heap_file_writer.interface;
+
 
             try heap_file_writer.seekTo(lse.heap_EOF_pso);
-            const stored_ref = lse.heap_EOF_pso;
+            const ref_pos = lse.heap_EOF_pso;
+            const stored_ref: referenceEntry = .{ .flags = 0, .reference = ref_pos };
 
-            const written_size = try generic_writer.write(&std.mem.toBytes(data));
+            const written_size = try heap_gen_writer.write(&std.mem.toBytes(storageEntry{.flags = 0, .data = data}));
             lse.heap_EOF_pso += written_size;
             try heap_file_writer.seekTo(0);
-            _ = try generic_writer.write(&std.mem.toBytes(lse.heap_EOF_pso));
+            _ = try heap_gen_writer.write(&std.mem.toBytes(lse.heap_EOF_pso));
             try heap_file_writer.flush();
             if (lse.valid_refs_size + 1 > lse.valid_refs.len) {
                 lse.valid_refs = try lse.allocator.realloc(lse.valid_refs, lse.valid_refs.len*2);
@@ -117,7 +152,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             lse.valid_refs[lse.valid_refs_size] = stored_ref;
             lse.valid_refs_size += 1;
 
-            return stored_ref;
+            return ref_pos;
         }
 
         pub fn retrieve(ptr: *anyopaque, ref: Reference) !DataType {
@@ -128,11 +163,11 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var heap_file_reader = heap_file.reader(io, lse.buffer);
             var generic_reader = &heap_file_reader.interface;
 
-            if (
-                ((ref-@sizeOf(EOF_pos_type)) % @sizeOf(DataType)) != 0 or ref >= lse.heap_EOF_pso
-                ) {
-                // std.debug.print("Invalid Reference {d}, DataType size {d}, EOF position {d}\n", .{ref, @sizeOf(DataType), lse.heap_EOF_pso});
-                return storageEngine.SEError.InvalidReference;
+            for(lse.valid_refs) |stored_ref| {
+                if(stored_ref.reference != ref){continue;}
+                if(stored_ref.flags & @as(u64, 0x1) == 0x1){
+                    return storageEngine.SEError.InvalidReference;
+                }
             }
             try heap_file_reader.seekTo(ref);
 
@@ -142,10 +177,15 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             return std.mem.bytesToValue(DataType, data);
         }
 
-        pub fn valid_references(ptr: *anyopaque) []const Reference{
+        pub fn valid_references(ptr: *anyopaque) ![]const Reference{
             const lse: *Self = @ptrCast(@alignCast(ptr));
-            // std.debug.print("About to get valid references of length {d}\n", .{lse.valid_refs_size});
-            return lse.valid_refs[0..lse.valid_refs_size];
+            const valid_refs = try lse.allocator.alloc(Reference, lse.valid_refs_size);
+            for(0..lse.valid_refs_size) |i| {
+                if(lse.valid_refs[i].flags & 0x1 != 0x1){
+                    valid_refs[i] = lse.valid_refs[i].reference;
+                }
+            }
+            return valid_refs;
         }
 
         /// Does not actually delete anything
@@ -170,10 +210,12 @@ test "store 1 item" {
     // std.testing.refAllDecls(@This());
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location});
     defer lse.deinit();
     _ = try linearStorageEngine(u64).store(&lse, 0xaaaa);
 
@@ -186,10 +228,12 @@ test "retrieve with invalid reference" {
     // std.testing.refAllDecls(@This());
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location });
     defer lse.deinit();
     _ = try linearStorageEngine(u64).store(&lse, 0xaaaa);
     const retrieve_data = linearStorageEngine(u64).retrieve(&lse, 2*@sizeOf(u64));
@@ -200,10 +244,12 @@ test "retrieve with invalid reference" {
 test "store 2 item" {
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location });
     defer lse.deinit();
     _ = try linearStorageEngine(u64).store(&lse, 0xaaaa);
     _ = try linearStorageEngine(u64).store(&lse, 0xbbbb);
@@ -216,10 +262,12 @@ test "store 2 item" {
 test "retrieve 1 item" {
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location , .ref_file_location = ref_file_location});
     defer lse.deinit();
     const first_item = try linearStorageEngine(u64).store(&lse, 0xaaaa);
 
@@ -231,10 +279,12 @@ test "retrieve 1 item" {
 test "retrieve 1 item multi-store" {
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location });
     defer lse.deinit();
     _ = try linearStorageEngine(u64).store(&lse, 0xaaaa);
     const second_item = try linearStorageEngine(u64).store(&lse, 0xbbbb);
@@ -248,15 +298,16 @@ test "retrieve 1 item multi-store" {
 test "usage of interface" {
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
 
     const testType = struct {
         data: u64,
-
     };
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(testType).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(testType).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location });
     defer lse.deinit();
     var generic_storage_engine = lse.storage_engine();
     const ref = try generic_storage_engine.StoreData(.{ .data = 0xaaaa});
@@ -270,16 +321,18 @@ test "restore from file" {
     // std.testing.refAllDecls(@This());
     const io = std.testing.io;
     const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
     const stored_data: u64 = 0xaaaa;
 
     path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
 
-    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location });
     const first_item = try linearStorageEngine(u64).store(&lse, stored_data);
 
     lse.deinit();
 
-    var lse_reload = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location });
+    var lse_reload = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location});
     defer lse_reload.deinit();
     // std.debug.print("EOF position: {d}\n", .{lse_reload.heap_EOF_pso});
     try std.testing.expect(lse_reload.heap_EOF_pso == 2*@sizeOf(u64));

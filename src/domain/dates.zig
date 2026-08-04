@@ -80,8 +80,6 @@ test "conversion" {
     const two_parts = "1/2026";
     const three_parts_conv = Self.convertStr(three_parts).?;
     const two_parts_conv = Self.convertStr(two_parts).?;
-    std.debug.print("{any}\n", .{three_parts_conv});
-    std.debug.print("{any}\n", .{two_parts_conv});
     try std.testing.expect(three_parts_conv.eql(&.{ .day = 1, .month = 2, .year = 3}));
     try std.testing.expect(two_parts_conv.eql(&Self{ .day = 1, .month = 1, .year = 2026}));
 }

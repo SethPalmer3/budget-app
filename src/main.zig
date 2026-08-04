@@ -15,6 +15,7 @@ const CLIErrors = TerminalCommands.CLIError;
 const Record = Domain.Record;
 
 const heap_location = "data/heap.db";
+const ref_location = "data/ref.db";
 const index_location = "data/index.ind";
 const MainKey: []const u8 = "date";
 const AddSubCommand = "ADD";
@@ -36,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
 
     const lin_db_type = LinearScan.LinearScanDB.LinearStorageDB(Record, MainKey);
     var linear_db = try lin_db_type
-        .init(gpa, Date.compare, .{.heap_file = heap_location, .index_file = index_location, .io = init.io});
+        .init(gpa, Date.compare, .{.heap_file = heap_location, .ref_file = ref_location, .index_file = index_location, .io = init.io});
     defer linear_db.deinit(gpa);
     var database = linear_db.database(gpa);
 

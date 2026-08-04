@@ -14,6 +14,7 @@ const delete_file_abs_or_cwd = @import("./path_funcs.zig").delete_file_abs_or_cw
 
 const Options = struct {
     heap_file: []const u8,
+    ref_file: []const u8,
     index_file: []const u8,
     io: std.Io,
     buffer_size: usize = 1024,
@@ -56,6 +57,7 @@ pub fn LinearStorageDB(comptime RecorcType: type, comptime Key: []const u8) type
                 }),
                 .lin_se = try LinearStorageEngine.linearStorageEngine(RecorcType).init(gpa, .{
                     .heap_file_location = options.heap_file,
+                    .ref_file_location = options.ref_file,
                     .io = options.io,
                     .buff_size = options.buffer_size,
                 }),
@@ -96,6 +98,7 @@ test "StoreData" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
     const heap_file_path = "testing/heap.db";
+    const ref_file_path = "testing/ref.db";
     const index_file_path = "testing/index.ind";
 
     const RecordType = struct {
@@ -107,7 +110,7 @@ test "StoreData" {
     delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
 
     var linDB = try LinearStorageDB(RecordType, "index").init(gpa, compare,
-        .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
+        .{.heap_file = heap_file_path, .ref_file = ref_file_path, .index_file = index_file_path, .io = io}
     );
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
@@ -128,6 +131,7 @@ test "GetDataByIndex one record" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
     const heap_file_path = "testing/heap.db";
+    const ref_file_path = "testing/ref.db";
     const index_file_path = "testing/index.ind";
 
     const Record = struct {
@@ -139,7 +143,7 @@ test "GetDataByIndex one record" {
     delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
 
     var linDB = try LinearStorageDB(Record, "index").init(gpa, compare,
-        .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
+        .{.heap_file = heap_file_path, .ref_file = ref_file_path, .index_file = index_file_path, .io = io}
     );
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
@@ -155,6 +159,7 @@ test "GetDataByIndex multiple record" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
     const heap_file_path = "testing/heap.db";
+    const ref_file_path = "testing/ref.db";
     const index_file_path = "testing/index.ind";
     const data: u64 = 1001;
     const index: u64 = 1;
@@ -168,7 +173,7 @@ test "GetDataByIndex multiple record" {
     delete_file_abs_or_cwd(std.testing.io, heap_file_path) catch {};
 
     var linDB = try LinearStorageDB(Record, "index").init(gpa, compare,
-        .{.heap_file = heap_file_path, .index_file = index_file_path, .io = io}
+        .{.heap_file = heap_file_path, .ref_file = ref_file_path, .index_file = index_file_path, .io = io}
     );
     defer linDB.deinit(gpa);
     var db = linDB.database(std.testing.allocator);
