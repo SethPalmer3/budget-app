@@ -21,7 +21,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
         pub const VTable = struct {
             store: *const fn (*anyopaque, DataType) anyerror!Reference,
             retrieve: *const fn (*anyopaque, Reference) anyerror!DataType,
-            valid_references: *const fn(*anyopaque) anyerror![]const Reference,
+            valid_references: *const fn(*anyopaque, Allocator) anyerror![]const Reference,
             delete: *const fn (*anyopaque, Reference) anyerror!void,
         };
 
@@ -51,7 +51,8 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
         }
 
         pub fn Query(se: *Self, gpa: std.mem.Allocator, query_term: ?QueryType) ![]const DataType{
-            const valid_refs = try se.vtable.valid_references(se.ptr);
+            const valid_refs = try se.vtable.valid_references(se.ptr, gpa);
+            defer gpa.free(valid_refs);
             var arr = try gpa.alloc(DataType, valid_refs.len);
             var next_arr_ptr: u64 = 0;
             for(valid_refs) |reference| {

@@ -41,14 +41,14 @@ pub fn generateHandleAdd(
                         const recType_info = @typeInfo(recordType);
                         const recType_fields = recType_info.@"enum".fields;
                         inline for (recType_fields) |field| {
-                            write_out.print("{s}", .{field.name})catch{};
+                            write_out.print("{s}\n", .{field.name})catch{};
                         }
                     }
                     else if(std.mem.eql(u8, opt_arg.name, "CATEGORY")){
                         const recType_info = @typeInfo(recordCategory);
                         const recType_fields = recType_info.@"enum".fields;
                         inline for (recType_fields) |field| {
-                            write_out.print("{s}", .{field.name})catch{};
+                            write_out.print("{s}\n", .{field.name})catch{};
                         }
                     }
                 }else |_|{

@@ -89,7 +89,6 @@ pub fn generateHandleList(
                 };
             };
 
-            // std.debug.print("query: {any}\n", .{query});
 
             //------------ Query Execution -------------------
             const items = db.storage_engine.Query(db.alloc, query) catch |err| {
@@ -98,9 +97,11 @@ pub fn generateHandleList(
             };
             defer db.alloc.free(items);
 
+            std.debug.print("Number of found items: {d}\n", .{items.len});
             //------------ Printing Data -------------------
             writer.print("----------------------------\n", .{}) catch {};
             for (items) |*item| {
+                std.debug.print("{any}\n", .{item.*});
                 cntxt.displayData(item, writer);
                 writer.print("----------------------------\n", .{}) catch {};
             }

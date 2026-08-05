@@ -75,7 +75,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             if(heap_file_stat.size > 0){
                 number_of_stored_entries = 
                     extractValueFromFile(u64, alloc, ref_file, options.io, 0, buff) catch |err| switch (err) {
-                        //TODO: Finish error handling
+                        else => 0,
                     };
                     EOF_pos = heap_file_stat.size;
             }
@@ -94,6 +94,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
                         );
             }
 
+            std.debug.print("Number of stored entries: {d}\n", .{number_of_stored_entries});
             return .{ 
                 .allocator = alloc,
                 .options = options,
@@ -111,17 +112,20 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var ref_file_wrter = lse.ref_file.writer(lse.options.io, lse.buffer);
             var ref_gen_writer = &ref_file_wrter.interface;
 
-            for(lse.init_ref_size..lse.valid_refs_size) |i| {
-                _ = ref_gen_writer.write(&std.mem.toBytes(lse.valid_refs[i])) catch {
-                    std.debug.print("[CLOSING] Could not write reference sites\n", .{});
-                }; // Ignoring errors for now
-            }
-
             ref_file_wrter.seekTo(0) catch {std.debug.print("Could not seek to beginning of ref file\n", .{});};
 
             _ = ref_gen_writer.write(&std.mem.toBytes(lse.valid_refs_size)) catch {
                 std.debug.print("Could not write number of valid entries correctly\n", .{});
             };
+            ref_file_wrter.flush() catch {}; // TODO: <- come up with a better way to handle
+
+            for(lse.init_ref_size..lse.valid_refs_size) |i| {
+                std.debug.print("Storing entries\n", .{});
+                _ = ref_gen_writer.write(&std.mem.toBytes(lse.valid_refs[i])) catch {
+                    std.debug.print("[CLOSING] Could not write reference sites\n", .{});
+                }; // Ignoring errors for now
+                ref_file_wrter.flush() catch {}; // TODO: <- come up with a better way to handle
+            }
 
             lse.allocator.free(lse.buffer);
             lse.allocator.free(lse.valid_refs);
@@ -151,6 +155,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             }
             lse.valid_refs[lse.valid_refs_size] = stored_ref;
             lse.valid_refs_size += 1;
+            std.debug.print("{any}\n", .{lse.valid_refs});
 
             return ref_pos;
         }
@@ -171,15 +176,16 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             }
             try heap_file_reader.seekTo(ref);
 
-            const data = try generic_reader.readAlloc(lse.allocator, @sizeOf(DataType));
+            const data = try generic_reader.readAlloc(lse.allocator, @sizeOf(storageEntry));
             defer lse.allocator.free(data);
 
-            return std.mem.bytesToValue(DataType, data);
+            const storage_entry = std.mem.bytesToValue(storageEntry, data);
+            return storage_entry.data;
         }
 
-        pub fn valid_references(ptr: *anyopaque) ![]const Reference{
+        pub fn valid_references(ptr: *anyopaque, alloc: Allocator) ![]const Reference{
             const lse: *Self = @ptrCast(@alignCast(ptr));
-            const valid_refs = try lse.allocator.alloc(Reference, lse.valid_refs_size);
+            const valid_refs = try alloc.alloc(Reference, lse.valid_refs_size);
             for(0..lse.valid_refs_size) |i| {
                 if(lse.valid_refs[i].flags & 0x1 != 0x1){
                     valid_refs[i] = lse.valid_refs[i].reference;
