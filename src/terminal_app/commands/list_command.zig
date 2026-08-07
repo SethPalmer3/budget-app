@@ -97,11 +97,9 @@ pub fn generateHandleList(
             };
             defer db.alloc.free(items);
 
-            std.debug.print("Number of found items: {d}\n", .{items.len});
             //------------ Printing Data -------------------
             writer.print("----------------------------\n", .{}) catch {};
             for (items) |*item| {
-                std.debug.print("{any}\n", .{item.*});
                 cntxt.displayData(item, writer);
                 writer.print("----------------------------\n", .{}) catch {};
             }

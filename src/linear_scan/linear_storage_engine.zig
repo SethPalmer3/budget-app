@@ -15,6 +15,10 @@ pub const Options = struct {
     ref_buff_size: usize = 1024,
 };
 
+pub const StorageFlags = enum(u8) {
+    TombStone = 0x1,
+};
+
 fn extractValueFromFile(comptime ExtractedType: type, alloc: Allocator, file: std.Io.File, io: std.Io, seekPos: u64, buffer: []u8) !ExtractedType {
     var file_reader = file.reader(io, buffer);
     var generic_reader = &file_reader.interface;
@@ -49,7 +53,6 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             flags: u8 = 0,
             reference: Reference,
         };
-
 
         allocator: Allocator,
         options: Options,
@@ -113,6 +116,26 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             lse.heap_file.close(lse.options.io);
         }
 
+        fn store_entry_at(lse: *Self, s_entry: storageEntry, ref: Reference) !void {
+            const io = lse.options.io;
+            const heap_file = lse.heap_file;
+
+            var heap_file_writer = heap_file.writer(io, lse.buffer);
+            var heap_gen_writer = &heap_file_writer.interface;
+
+            try heap_file_writer.seekTo(ref);
+            // const stored_ref: referenceEntry = .{ .flags = s_entry.flags, .reference = ref };
+
+            const written_size = try heap_gen_writer.write(&std.mem.toBytes(s_entry));
+            lse.heap_EOF_pso += written_size;
+            if(ref + written_size > lse.heap_EOF_pso){
+                lse.heap_EOF_pso = ref + written_size;
+            }
+            try heap_file_writer.seekTo(0);
+            _ = try heap_gen_writer.write(&std.mem.toBytes(lse.heap_EOF_pso));
+            try heap_file_writer.flush();
+        }
+
         pub fn store(ptr: *anyopaque, data: DataType) !Reference {
             const lse: *Self = @ptrCast(@alignCast(ptr));
             const io = lse.options.io;
@@ -155,8 +178,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             }
         }
 
-        pub fn retrieve(ptr: *anyopaque, ref: Reference) !DataType {
-            const lse: *Self = @ptrCast(@alignCast(ptr));
+        fn get_storage_entry(lse: *Self, ref: Reference) !Self.storageEntry {
             const io = lse.options.io;
             const heap_file = lse.heap_file;
 
@@ -166,7 +188,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var found = false;
             for(lse.valid_refs) |stored_ref| {
                 if(stored_ref.reference != ref){continue;}
-                if(stored_ref.flags & @as(u64, 0x1) == 0x1){
+                if(stored_ref.flags & @intFromEnum(StorageFlags.TombStone) != 0){
                     return storageEngine.SEError.InvalidReference;
                 }
                 found = true;
@@ -177,10 +199,18 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             }
             try heap_file_reader.seekTo(ref);
 
-            const data = try generic_reader.readAlloc(lse.allocator, @sizeOf(storageEntry));
-            defer lse.allocator.free(data);
+            const data_bytes = try generic_reader.readAlloc(lse.allocator, @sizeOf(storageEntry));
+            defer lse.allocator.free(data_bytes);
+            const storage_entry = std.mem.bytesToValue(storageEntry, data_bytes);
+            return storage_entry;
+        }
 
-            const storage_entry = std.mem.bytesToValue(storageEntry, data);
+        pub fn retrieve(ptr: *anyopaque, ref: Reference) !DataType {
+            const lse: *Self = @ptrCast(@alignCast(ptr));
+
+            const data = try lse.get_storage_entry(ref);
+
+            const storage_entry = std.mem.bytesToValue(storageEntry, &data);
             return storage_entry.data;
         }
 
@@ -195,11 +225,15 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             return valid_refs;
         }
 
-        /// Does not actually delete anything
         pub fn delete(ptr: *anyopaque, ref: Reference) !void {
-            _ = ptr;
-            _ = ref;
-            return;
+            const lse: *Self = @ptrCast(@alignCast(ptr));
+            for(lse.valid_refs) |*stored_ref| {
+                if(stored_ref.reference == ref){
+                    stored_ref.flags |= @intFromEnum(StorageFlags.TombStone);
+                }
+            }
+            // var item = try lse.get_storage_entry(ref);
+            // item.flags |= @intFromEnum(StorageFlags.TombStone);
         }
 
         pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference, Databases.getCompareableFieldNames(DataType, Databases.container_compare_fn_name)) {
@@ -358,4 +392,23 @@ test "restore from file" {
     const retrieved_item = try linearStorageEngine(u64).retrieve(&lse_reload, first_item);
 
     try std.testing.expect(std.meta.eql(retrieved_item, stored_data));
+}
+
+test "delete item" {
+    const io = std.testing.io;
+    const heap_file_location = "testing/heap.db";
+    const ref_file_location = "testing/ref.db";
+    const stored_data: u64 = 0xaaaa;
+
+    path_utils.delete_file_abs_or_cwd(io, heap_file_location) catch {}; // Clear if test ran before
+    path_utils.delete_file_abs_or_cwd(io, ref_file_location) catch {}; // Clear if test ran before
+
+    var lse = try linearStorageEngine(u64).init(std.testing.allocator, .{ .io = io, .heap_file_location = heap_file_location, .ref_file_location = ref_file_location });
+    defer lse.deinit();
+    const item_ref = try linearStorageEngine(u64).store(&lse, stored_data);
+
+    try linearStorageEngine(u64).delete(&lse, item_ref);
+    const deleted_item = linearStorageEngine(u64).retrieve(&lse, item_ref);
+
+    try std.testing.expectError(storageEngine.SEError.InvalidReference, deleted_item);
 }
