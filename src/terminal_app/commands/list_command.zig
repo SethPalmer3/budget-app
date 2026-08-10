@@ -100,11 +100,7 @@ pub fn generateHandleList(
             //------------ Printing Data -------------------
             writer.print("----------------------------\n", .{}) catch {};
             for (items) |*item| {
-<<<<<<< HEAD
-                cntxt.displayData(item, writer);
-=======
                 cntxt.displayData(&item.data, writer);
->>>>>>> delete-command
                 writer.print("----------------------------\n", .{}) catch {};
             }
             // writer.print("\n", .{}) catch {};

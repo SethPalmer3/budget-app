@@ -230,16 +230,6 @@ pub fn linearStorageEngine(comptime DataType: type) type {
 
         pub fn delete(ptr: *anyopaque, ref: Reference) !void {
             const lse: *Self = @ptrCast(@alignCast(ptr));
-<<<<<<< HEAD
-            for(lse.valid_refs) |*stored_ref| {
-                if(stored_ref.reference == ref){
-                    stored_ref.flags |= @intFromEnum(StorageFlags.TombStone);
-                }
-            }
-            // var item = try lse.get_storage_entry(ref);
-            // item.flags |= @intFromEnum(StorageFlags.TombStone);
-=======
-            // std.debug.print("{any}\n", .{lse.valid_refs});
             for(0..lse.valid_refs_size) |i| {
                 if(lse.valid_refs[i].reference != ref){continue;}
                 lse.valid_refs[i].flags |= @intFromEnum(StorageOptions.TombStone);
@@ -247,7 +237,6 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             }
             std.debug.print("{any}\n", .{lse.valid_refs});
             return;
->>>>>>> delete-command
         }
 
         pub fn storage_engine(lse: *Self) storageEngine.StorageEngine(DataType, Reference, Databases.getCompareableFieldNames(DataType, Databases.container_compare_fn_name)) {
