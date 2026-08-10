@@ -2,6 +2,7 @@ const std = @import("std");
 const CommandParse = @import("CommandParse");
 const Database = @import("Database");
 pub const AddCommand = @import("commands/add_command.zig");
+pub const DeleteCommand = @import("commands/delete_command.zig");
 pub const ListCommand = @import("commands/list_command.zig");
 pub const QuitCommand = @import("commands/quit_command.zig");
 pub const DebugCommands = @import("commands/debug_commands.zig");

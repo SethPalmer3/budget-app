@@ -113,12 +113,12 @@ pub fn generateHandleCopy(
             //--------------- Copy Budget ------------------------
             var successful_copy: u64 = 0;
             for (budget_items) |item| {
-                var copy_item = item;
+                var copy_item: DataType = item.data;
                 copy_item.date.month = copy_date.month;
                 copy_item.date.year = copy_date.year;
                 successful_copy += 1;
                 db.StoreData(.{ .data = copy_item }) catch |err| {
-                    writer.print("({s})Could not store copied budget item {s}\n", .{@errorName(err), item.name}) catch {};
+                    writer.print("({s})Could not store copied budget item {s}\n", .{@errorName(err), copy_item.name}) catch {};
                     successful_copy -= 1;
                 };
             }

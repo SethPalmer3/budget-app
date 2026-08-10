@@ -107,14 +107,14 @@ pub fn generateHandleInfo(
 
             // Totals for indiviual categories
             for(budget_items) |budget_item| {
-                budget_total += @field(budget_item, "amount");
-                const cat_index = @intFromEnum(@field(budget_item, select_datatype_field));
-                category_breakdown_budget[cat_index] += @field(budget_item, "amount");
+                budget_total += @field(budget_item.data, "amount");
+                const cat_index = @intFromEnum(@field(budget_item.data, select_datatype_field));
+                category_breakdown_budget[cat_index] += @field(budget_item.data, "amount");
             }
             for(transaction_items) |transaction_item| {
-                transaction_total += @field(transaction_item, "amount");
-                const cat_index = @intFromEnum(@field(transaction_item, select_datatype_field));
-                category_breakdown_transaction[cat_index] += @field(transaction_item, "amount");
+                transaction_total += @field(transaction_item.data, "amount");
+                const cat_index = @intFromEnum(@field(transaction_item.data, select_datatype_field));
+                category_breakdown_transaction[cat_index] += @field(transaction_item.data, "amount");
             }
 
             if(budget_total == 0){

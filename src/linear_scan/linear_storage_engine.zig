@@ -15,13 +15,17 @@ pub const Options = struct {
     ref_buff_size: usize = 1024,
 };
 
+pub const StorageOptions = enum(u8) {
+    TombStone = 0x1,
+};
+
 fn extractValueFromFile(comptime ExtractedType: type, alloc: Allocator, file: std.Io.File, io: std.Io, seekPos: u64, buffer: []u8) !ExtractedType {
     var file_reader = file.reader(io, buffer);
     var generic_reader = &file_reader.interface;
 
     try file_reader.seekTo(seekPos);
 
-    const value_bytes = try generic_reader.readAlloc(alloc, @sizeOf(u64));
+    const value_bytes = try generic_reader.readAlloc(alloc, @sizeOf(ExtractedType));
     defer alloc.free(value_bytes);
     return std.mem.bytesToValue(ExtractedType, value_bytes);
 }
@@ -88,7 +92,7 @@ pub fn linearStorageEngine(comptime DataType: type) type {
                             alloc,
                             ref_file,
                             options.io,
-                            @as(u64, @sizeOf(u64) + (i * @sizeOf(referenceEntry))),
+                            @as(u64, @sizeOf(@TypeOf(number_of_stored_entries)) + (i * @sizeOf(referenceEntry))),
                             buff
                         );
             }
@@ -164,9 +168,9 @@ pub fn linearStorageEngine(comptime DataType: type) type {
             var generic_reader = &heap_file_reader.interface;
 
             var found = false;
-            for(lse.valid_refs) |stored_ref| {
-                if(stored_ref.reference != ref){continue;}
-                if(stored_ref.flags & @as(u64, 0x1) == 0x1){
+            for(0..lse.valid_refs_size) |i| {
+                if(lse.valid_refs[i].reference != ref){continue;}
+                if(lse.valid_refs[i].flags & @intFromEnum(StorageOptions.TombStone) == 0x1){
                     return storageEngine.SEError.InvalidReference;
                 }
                 found = true;
@@ -186,19 +190,28 @@ pub fn linearStorageEngine(comptime DataType: type) type {
 
         pub fn valid_references(ptr: *anyopaque, alloc: Allocator) ![]const Reference{
             const lse: *Self = @ptrCast(@alignCast(ptr));
-            const valid_refs = try alloc.alloc(Reference, lse.valid_refs_size);
+            var valid_refs = try alloc.alloc(Reference, lse.valid_refs_size);
+            var valid_index: u64 = 0;
             for(0..lse.valid_refs_size) |i| {
-                if(lse.valid_refs[i].flags & 0x1 != 0x1){
-                    valid_refs[i] = lse.valid_refs[i].reference;
+                if(lse.valid_refs[i].flags & @intFromEnum(StorageOptions.TombStone) != 0x1){
+                    valid_refs[valid_index] = lse.valid_refs[i].reference;
+                    valid_index += 1;
                 }
             }
+            valid_refs = try alloc.realloc(valid_refs, valid_index);
             return valid_refs;
         }
 
         /// Does not actually delete anything
         pub fn delete(ptr: *anyopaque, ref: Reference) !void {
-            _ = ptr;
-            _ = ref;
+            const lse: *Self = @ptrCast(@alignCast(ptr));
+            // std.debug.print("{any}\n", .{lse.valid_refs});
+            for(0..lse.valid_refs_size) |i| {
+                if(lse.valid_refs[i].reference != ref){continue;}
+                lse.valid_refs[i].flags |= @intFromEnum(StorageOptions.TombStone);
+                break;
+            }
+            std.debug.print("{any}\n", .{lse.valid_refs});
             return;
         }
 

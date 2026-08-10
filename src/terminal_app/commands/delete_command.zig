@@ -17,7 +17,7 @@ const Date = Domain.Date;
 pub const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
 const extractQueryFromCommand = @import("../extract_query_specifiers.zig").extractQueryFromCommand;
 
-const LIST_COMMAND_NAME = "LIST";
+const LIST_COMMAND_NAME = "DELETE";
 const string_conversion_name = "convertStr";
 
 pub fn contextPackage(
@@ -33,7 +33,7 @@ pub fn contextPackage(
 }
 
 
-pub fn generateHandleList(
+pub fn geneateHandleDelete(
     comptime DataType: type,
     comptime RefType: type,
     comptime IndexKey: anytype,
@@ -46,7 +46,7 @@ pub fn generateHandleList(
             writer: *std.Io.Writer,
             context: *anyopaque
         ) cmdManager.CommandState {
-            _ = reader;
+            // _ = reader;
             const cntxt: *contextPackage(DataType, RefType, IndexKey) = @alignCast(@ptrCast(context));
             var db = cntxt.db;
             var next_arg: u64 = 1;
@@ -56,7 +56,7 @@ pub fn generateHandleList(
                 comptime Database.getCompareableFieldNames(DataType, Database.container_compare_fn_name);
             //------------ Checking Help Flag -------------------
             if(parsed.getOption(.{.long_form = "help", .short_form = 'h'})) |_|{
-                writer.print("LIST [--field <VALUE> [MAX VALUE]...]\n", .{})catch{};
+                writer.print("DELETE [--field <VALUE> [MAX VALUE]...]\n", .{})catch{};
                 writer.print("Avaliable fields:\n", .{})catch{};
                 const data_info = @typeInfo(DataType);
                 inline for (data_info.@"struct".fields) |field| {
@@ -92,17 +92,36 @@ pub fn generateHandleList(
 
             //------------ Query Execution -------------------
             const items = db.storage_engine.Query(db.alloc, query) catch |err| {
-                writer.print("({t}) Could not fetch the query correctly\n", .{err}) catch {};
+                writer.print("({s}) Could not fetch the query correctly\n", .{@errorName(err)}) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             };
             defer db.alloc.free(items);
 
             //------------ Printing Data -------------------
-            writer.print("----------------------------\n", .{}) catch {};
-            for (items) |*item| {
-                cntxt.displayData(&item.data, writer);
-                writer.print("----------------------------\n", .{}) catch {};
+            for (items, 0..) |*item, i| {
+                writer.print("------------Option: {d}--------------\n", .{i + 1}) catch {};
+                cntxt.displayData(&item.*.data, writer);
             }
+            writer.print("----------------------------------\n", .{}) catch {};
+            writer.writeAll("> ")catch{};
+            writer.flush()catch{};
+            const input = reader.takeDelimiterInclusive('\n') catch |err| {
+                writer.print("({s})Could not find delimeter\n", .{@errorName(err)})catch{};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            const selection = std.fmt.parseInt(u64, input[0..input.len-1], 10) catch |err| {
+                writer.print("({s})Malformed input\n", .{@errorName(err)})catch{};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            if(selection == 0){
+                writer.print("Cancelling deletion\n", .{})catch{};
+                return cmdManager.CommandState.Continue;
+            }
+            db.storage_engine.DeleteData(items[selection-1].ref) catch |err| {
+                writer.print("({s})Could not delete item\n", .{@errorName(err)})catch{};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            writer.print("Deleted option {d} ({s})\n", .{selection, items[selection-1].data.name[0..items[selection-1].data.name_size]})catch{};
             // writer.print("\n", .{}) catch {};
             return cmdManager.CommandState.Continue;
         }

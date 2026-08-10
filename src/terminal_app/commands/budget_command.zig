@@ -105,9 +105,9 @@ pub fn generateHandleBudget(
             const num_categories = category_info.@"enum".fields.len;
             var category_breakdown_budget: [num_categories]u64 = .{0} ** num_categories;
             for(budget_items) |budget_item| {
-                budget_total += @field(budget_item, "amount");
-                const cat_index = @intFromEnum(@field(budget_item, select_datatype_field));
-                category_breakdown_budget[cat_index] += @field(budget_item, "amount");
+                budget_total += @field(budget_item.data, "amount");
+                const cat_index = @intFromEnum(@field(budget_item.data, select_datatype_field));
+                category_breakdown_budget[cat_index] += @field(budget_item.data, "amount");
             }
             //------------ Printing Data -------------------
             writer.print("Total Budget: {d}.{d:0<2}\n", .{

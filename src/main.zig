@@ -19,6 +19,7 @@ const ref_location = "data/ref.db";
 const index_location = "data/index.ind";
 const MainKey: []const u8 = "date";
 const AddSubCommand = "ADD";
+const DeleteSubCommand = "DELETE";
 const ListSubCommand = "LIST";
 const BudgetSubCommand = "BUDGET";
 const CopySubCommand = "COPY";
@@ -112,6 +113,15 @@ pub fn main(init: std.process.Init) !void {
             .name = CopySubCommand,
             .execute_fn = 
                 TerminalCommands.CopyCommand.generateHandleCopy(
+                    Record, lin_db_type.ReferenceType, MainKey, "convertStr"
+                ),
+            .execute_context =
+                &list_context,
+        },
+        .{
+            .name = DeleteSubCommand,
+            .execute_fn = 
+                TerminalCommands.DeleteCommand.geneateHandleDelete(
                     Record, lin_db_type.ReferenceType, MainKey, "convertStr"
                 ),
             .execute_context =
