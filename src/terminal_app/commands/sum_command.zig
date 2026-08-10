@@ -103,12 +103,12 @@ pub fn generateHandleSum(
                     const field_value: u64 = blk: {
                         inline for (data_info.@"struct".fields) |field| {
                             if(std.mem.eql(u8, field.name, field_to_sum.name)){
-                               const field_val = @field(item.*, field.name);
+                               const field_val = @field(item.*.data, field.name);
                                if(@typeInfo(@TypeOf(field_val)) != .int){
                                     writer.print("The field '{s}' needs to be a int type, got '{s}' instead\n", .{field_to_sum.name, @typeName(@TypeOf(field_val))}) catch {};
                                     return cmdManager.CommandState.ErrorContinue;
                                }
-                                break :blk @field(item.*, field.name);
+                                break :blk @field(item.*.data, field.name);
                             }
                         }
                         writer.print("Could not find a field with name '{s}' in '{s}'\n", .{field_to_sum.name, @typeName(DataType)}) catch {};

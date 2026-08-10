@@ -17,6 +17,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
     return struct {
         const Self = @This();
         pub const QueryType: type = query.generateQueryType(DataType, ranged_params); 
+        pub const QueryOutputType = struct{data: DataType, ref: Reference};
 
         pub const VTable = struct {
             store: *const fn (*anyopaque, DataType) anyerror!Reference,
@@ -50,10 +51,10 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
             return try se.vtable.delete(se.ptr, ref);
         }
 
-        pub fn Query(se: *Self, gpa: std.mem.Allocator, query_term: ?QueryType) ![]const DataType{
+        pub fn Query(se: *Self, gpa: std.mem.Allocator, query_term: ?QueryType) ![]const QueryOutputType{
             const valid_refs = try se.vtable.valid_references(se.ptr, gpa);
             defer gpa.free(valid_refs);
-            var arr = try gpa.alloc(DataType, valid_refs.len);
+            var arr: []QueryOutputType = try gpa.alloc(QueryOutputType, valid_refs.len);
             var next_arr_ptr: u64 = 0;
             for(valid_refs) |reference| {
                 const data = se.vtable.retrieve(se.ptr, reference) catch |err| {
@@ -61,7 +62,7 @@ pub fn StorageEngine(comptime DataType: type, comptime Reference: type, comptime
                     return err;
                 };
                 if(query.MatchQuery(DataType, QueryType, ranged_params, &data, &query_term)){
-                    arr[next_arr_ptr] = data;
+                    arr[next_arr_ptr] = .{.data = data, .ref = reference};
                     next_arr_ptr+=1;
                 }
             }
