@@ -3,7 +3,8 @@ const Database = @import("Database");
 const DBType = Database.Database.Database;
 const CommandParse = @import("CommandParse");
 const cmdManager = @import("../command_manager.zig");
-const Date = @import("Domain").Date;
+const Domain = @import("Domain");
+const Date = Domain.Date;
 const Query = Database.Query;
 
 const fetchConvertStrFn = @import("./list_cmd_utils/fetch_conversion_fn.zig").fetchConvertStrFn;
@@ -19,6 +20,7 @@ pub fn contextPackage(
         displayData: *const fn(*const DataType, *std.Io.Writer) void,
     };
 }
+
 
 pub fn generateHandleInfo(
     comptime DataType: type,
@@ -94,64 +96,65 @@ pub fn generateHandleInfo(
                 return cmdManager.CommandState.ErrorContinue;
             };
             defer db.alloc.free(transaction_items);
-            const select_datatype_field = "category";
-            const category_info = @typeInfo(@FieldType(DataType, select_datatype_field));
-            if(category_info != .@"enum") {
-                @compileError("The selected field " ++ select_datatype_field ++ " must be an enum");
-            }
-            var budget_total: u64 = 0;
-            const num_categories = category_info.@"enum".fields.len;
-            var category_breakdown_budget: [num_categories]u64 = .{0} ** category_info.@"enum".fields.len;
-            var transaction_total: u64 = 0;
-            var category_breakdown_transaction: [num_categories]u64 = .{0} ** category_info.@"enum".fields.len;
 
-            // Totals for indiviual categories
-            for(budget_items) |budget_item| {
-                budget_total += @field(budget_item.data, "amount");
-                const cat_index = @intFromEnum(@field(budget_item.data, select_datatype_field));
-                category_breakdown_budget[cat_index] += @field(budget_item.data, "amount");
+            //---------------Info Gathering------------------
+            var budget_data: [] *const DataType = db.alloc.alloc(*DataType, budget_items.len) catch |err| {
+                writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            defer db.alloc.free(budget_data);
+            var transaction_data: [] *const DataType = db.alloc.alloc(*DataType, transaction_items.len) catch |err| {
+                writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            defer db.alloc.free(transaction_data);
+            for (0..budget_items.len) |i| {
+                budget_data[i] = &budget_items[i].data;
             }
-            for(transaction_items) |transaction_item| {
-                transaction_total += @field(transaction_item.data, "amount");
-                const cat_index = @intFromEnum(@field(transaction_item.data, select_datatype_field));
-                category_breakdown_transaction[cat_index] += @field(transaction_item.data, "amount");
+            for (0..transaction_items.len) |i| {
+                transaction_data[i] = &transaction_items[i].data;
             }
+            const budget_summary = Domain.Services.data_summary(DataType, "category", "amount", budget_data);
+            const transaction_summary = Domain.Services.data_summary(DataType, "category", "amount", transaction_data);
 
-            if(budget_total == 0){
+            //-------------Totals---------------------
+            if(budget_summary.total == 0){
                 writer.print("Total: ${d}.{d:0<2} (no budgeting)\n",
                     .{
-                        transaction_total / 100, @rem(transaction_total, 100),
+                        transaction_summary.total / 100, @rem(transaction_summary.total, 100),
                     }
                 ) catch {};
             }else{
-                const total_percent: u64 = (transaction_total * 10000) / budget_total;
+                const total_percent: u64 = (transaction_summary.total * 10000) / budget_summary.total;
 
                 //------------ Printing Data -------------------
                 writer.print("Total: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2})\n",
                     .{
-                        transaction_total / 100, @rem(transaction_total, 100),
-                        budget_total / 100, @rem(budget_total, 100),
+                        transaction_summary.total / 100, @rem(transaction_summary.total, 100),
+                        budget_summary.total / 100, @rem(budget_summary.total, 100),
                         total_percent / 100, @rem(total_percent, 100),
                     }
                 ) catch {};
             }
 
-            for(0..num_categories) |i| {
-                if(category_breakdown_budget[i] == 0){
+            //----------------Category Breakdown-----------------
+            const category_info = @typeInfo(@FieldType(DataType, "category"));
+            for(0..category_info.@"enum".fields.len) |i| {
+                if(budget_summary.individual_totals[i] == 0){
                     writer.print("  {s}: ${d}.{d:0<2} (no budget allocated)\n",
                         .{
                             category_info.@"enum".fields[i].name,
-                            category_breakdown_transaction[i] / 100, @rem(category_breakdown_transaction[i], 100),
+                            transaction_summary.individual_totals[i] / 100, @rem(transaction_summary.individual_totals[i], 100),
                         }
                     ) catch {};
                     continue;
                 }
-                const category_total_percent: u64 = (category_breakdown_transaction[i] * 10000) / category_breakdown_budget[i] ;
+                const category_total_percent: u64 = (transaction_summary.individual_totals[i] * 10000) / budget_summary.individual_totals[i] ;
                 writer.print("  {s}: ${d}.{d:0<2} / ${d}.{d:0<2} (%{d}.{d:0<2} used)\n",
                     .{
                         category_info.@"enum".fields[i].name,
-                        category_breakdown_transaction[i] / 100, @rem(category_breakdown_transaction[i], 100),
-                        category_breakdown_budget[i] / 100, @rem(category_breakdown_budget[i], 100),
+                        transaction_summary.individual_totals[i] / 100, @rem(transaction_summary.individual_totals[i], 100),
+                        budget_summary.individual_totals[i] / 100, @rem(budget_summary.individual_totals[i], 100),
                         category_total_percent / 100, @rem(category_total_percent, 100),
                     }
                 ) catch {};
