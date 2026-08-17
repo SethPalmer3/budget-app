@@ -21,6 +21,28 @@ pub fn contextPackage(
     };
 }
 
+fn collectSummary(comptime dbType: type, writer: *std.Io.Writer, db: *dbType, query: Query) !Domain.Services.DataSummary(u64) {
+    const DataType = db.*.DataType;
+    const items = db.storage_engine.Query(db.alloc, query) catch |err| {
+        writer.print("({t}) Could not fetch the query correctly\n", .{err}) catch {};
+        return err;
+    };
+    defer db.alloc.free(items);
+    var budget_data: [] *const DataType = db.alloc.alloc(*const DataType, items.len) catch |err| {
+        writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+        return err;
+    };
+    defer db.alloc.free(budget_data);
+    for (0..items.len) |i| {
+        budget_data[i] = &items[i].data;
+    }
+    const budget_summary = Domain.Services.data_summary(DataType, "category", "amount", db.alloc, budget_data) catch |err| {
+        writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+        return err;
+    };
+    return budget_summary;
+}
+
 
 pub fn generateHandleInfo(
     comptime DataType: type,
@@ -69,12 +91,13 @@ pub fn generateHandleInfo(
                 start_date = date;
                 start_date.day = 1;
                 end_date = start_date;
-                end_date.month += 1;
+                end_date.day += 99; // To ensure all items are within the same month
             }else{
                 _ = writer.print("Could not parse the date, '{s}', correctly\n", .{item_date_str.name})catch{return cmdManager.CommandState.ErrorContinue;};
                 return cmdManager.CommandState.ErrorContinue;
             }
             //------------ Setting up Query Data -------------------
+            std.debug.print("start_date:{any} - end_date:{any}", .{start_date, end_date});
             const budget_query: Database.StorageEngine.StorageEngine(DataType, RefType, ranged_list).QueryType = .{
                 .type = .Budget,
                 .date = Query.QueryParam(Date){.range = .{ .min = start_date, .max = end_date }},
@@ -83,39 +106,47 @@ pub fn generateHandleInfo(
                 .type = .Transaction,
                 .date = Query.QueryParam(Date){.range = .{ .min = start_date, .max = end_date }},
             };
-            // std.debug.print("query: {any}\n", .{query});
 
-            //------------ Query Execution -------------------
+            //------------ Budgets -------------------
             const budget_items = db.storage_engine.Query(db.alloc, budget_query) catch |err| {
                 writer.print("({s}) Could not fetch the query correctly\n", .{@errorName(err)}) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             };
             defer db.alloc.free(budget_items);
+            std.debug.print("budget_items_len: {d}\n", .{budget_items.len});
+            var budget_data: [] *const DataType = db.alloc.alloc(*const DataType, budget_items.len) catch |err| {
+                writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            defer db.alloc.free(budget_data);
+            for (0..budget_items.len) |i| {
+                budget_data[i] = &budget_items[i].data;
+            }
+            const budget_summary = Domain.Services.data_summary(DataType, "category", "amount", db.alloc, budget_data) catch |err| {
+                writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            defer db.alloc.free(budget_summary.individual_totals);
+            // ------------------Transactions-------------------
             const transaction_items = db.storage_engine.Query(db.alloc, transaction_query) catch |err| {
                 writer.print("({s}) Could not fetch the query correctly\n", .{@errorName(err)}) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             };
             defer db.alloc.free(transaction_items);
-
-            //---------------Info Gathering------------------
-            var budget_data: [] *const DataType = db.alloc.alloc(*DataType, budget_items.len) catch |err| {
-                writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
-                return cmdManager.CommandState.ErrorContinue;
-            };
-            defer db.alloc.free(budget_data);
-            var transaction_data: [] *const DataType = db.alloc.alloc(*DataType, transaction_items.len) catch |err| {
+            std.debug.print("transaction_items_len: {d}\n", .{transaction_items.len});
+            var transaction_data: [] *const DataType = db.alloc.alloc(*const DataType, transaction_items.len) catch |err| {
                 writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
                 return cmdManager.CommandState.ErrorContinue;
             };
             defer db.alloc.free(transaction_data);
-            for (0..budget_items.len) |i| {
-                budget_data[i] = &budget_items[i].data;
-            }
             for (0..transaction_items.len) |i| {
                 transaction_data[i] = &transaction_items[i].data;
             }
-            const budget_summary = Domain.Services.data_summary(DataType, "category", "amount", budget_data);
-            const transaction_summary = Domain.Services.data_summary(DataType, "category", "amount", transaction_data);
+            const transaction_summary = Domain.Services.data_summary(DataType, "category", "amount", db.alloc, transaction_data) catch |err| {
+                writer.print("({t}) Could not allocate memory\n", .{err}) catch {};
+                return cmdManager.CommandState.ErrorContinue;
+            };
+            defer db.alloc.free(transaction_summary.individual_totals);
 
             //-------------Totals---------------------
             if(budget_summary.total == 0){
